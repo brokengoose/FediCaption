@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fedicaption"
+version = "1.0.0"
+description = "Accessible Mastodon client with automatic AI alt-text generation for images and videos (macOS & Linux)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "brokengoose" }]
+dependencies = []
+
+[project.scripts]
+fedicaption = "server.app:main"
+
+[tool.setuptools.packages.find]
+include = ["server*"]

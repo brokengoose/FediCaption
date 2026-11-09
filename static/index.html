@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FediCaption — Accessible Mastodon Client with AI Alt-Text</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Accessibility Skip Links -->
+  <div class="skip-links" role="region" aria-label="Skip navigation">
+    <a href="#composer-textarea" class="skip-link">Skip to Post Composer</a>
+    <a href="#media-file-input" class="skip-link">Skip to Attach Image or Video</a>
+    <a href="#timeline-feed" class="skip-link">Skip to Timeline Feed</a>
+    <a href="#settings-button" class="skip-link">Skip to AI &amp; Account Settings</a>
+  </div>
+
+  <!-- Screen Reader Live Announcer -->
+  <div id="sr-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="sr-alert-announcer" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <!-- Top Application Header -->
+  <header class="app-header" role="banner">
+    <div class="brand-group">
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 36 36" width="32" height="32" fill="none">
+          <rect width="36" height="36" rx="10" fill="url(#logoGrad)" />
+          <path d="M9 13C9 10.7909 10.7909 9 13 9H23C25.2091 9 27 10.7909 27 13V20C27 22.2091 25.2091 24 23 24H16L11 27.5V24C9.89543 24 9 23.1046 9 22V13Z" stroke="white" stroke-width="2.2" stroke-linejoin="round"/>
+          <circle cx="14.5" cy="16.5" r="1.8" fill="white"/>
+          <path d="M13 21L17 17L20 19.5L23 15.5L25 18.5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#6364FF"/>
+              <stop offset="1" stop-color="#00C2A8"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <div>
+        <h1 class="app-title">FediCaption</h1>
+        <p class="app-subtitle">Accessible Mastodon Client &bull; Automatic AI Image &amp; Video Alt-Text</p>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <!-- Active AI Provider Pill -->
+      <button type="button" id="ai-status-pill" class="ai-status-pill" title="Click to configure AI provider and models" aria-label="Configure AI Provider">
+        <span class="status-dot" id="ai-status-dot" aria-hidden="true"></span>
+        <span id="ai-status-label">AI: Loading...</span>
+      </button>
+
+      <!-- Theme Selector -->
+      <div class="theme-switcher" role="group" aria-label="Display theme">
+        <label for="theme-select" class="sr-only">Color Theme</label>
+        <select id="theme-select" class="select-compact" aria-label="Color Theme">
+          <option value="dark">Dark Theme</option>
+          <option value="light">Light Theme</option>
+          <option value="high-contrast">High Contrast (AAA)</option>
+        </select>
+      </div>
+
+      <!-- Settings Modal Trigger -->
+      <button type="button" id="settings-button" class="btn btn-secondary" aria-haspopup="dialog">
+        <span aria-hidden="true">&#9881;</span> Settings &amp; API Keys
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Three-Area Workspace -->
+  <div class="app-layout">
+    <!-- Left Navigation & Account Sidebar -->
+    <aside class="sidebar-nav" aria-label="Account and Timelines">
+      <!-- Mastodon Account Card -->
+      <section class="account-card" aria-label="Mastodon Account Status">
+        <div id="account-connected" class="hidden">
+          <button
+            type="button"
+            id="account-profile-btn"
+            class="account-profile-row"
+            title="View your own posts"
+            aria-label="View your own posts"
+          >
+            <img id="account-avatar" src="" alt="" class="account-avatar" />
+            <div class="account-meta">
+              <div id="account-display-name" class="account-display-name"></div>
+              <div id="account-handle" class="account-handle"></div>
+            </div>
+          </button>
+          <div class="account-actions-row">
+            <button type="button" id="refresh-account-btn" class="btn btn-sm btn-ghost">Verify</button>
+            <button type="button" id="logout-btn" class="btn btn-sm btn-danger-ghost">Disconnect</button>
+          </div>
+        </div>
+
+        <div id="account-disconnected">
+          <div class="disconnected-banner">
+            <strong>Connect Mastodon</strong>
+            <p>Sign in to any Mastodon or Fediverse server to publish posts and browse timelines. You can also test AI image &amp; video alt-text right away!</p>
+            <button type="button" id="connect-account-btn" class="btn btn-primary btn-block">
+              Connect Account
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Timeline Navigation -->
+      <nav class="timeline-nav" aria-label="Mastodon Timelines">
+        <h2 class="sidebar-heading">Timelines</h2>
+        <ul class="nav-list" role="list">
+          <li>
+            <button type="button" class="nav-item active" data-timeline="home" aria-current="page">
+              <span class="nav-icon" aria-hidden="true">&#127968;</span>
+              <span>Home Timeline</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" data-timeline="local">
+              <span class="nav-icon" aria-hidden="true">&#128101;</span>
+              <span>Local Server</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" data-timeline="federated">
+              <span class="nav-icon" aria-hidden="true">&#127760;</span>
+              <span>Federated</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" data-timeline="notifications">
+              <span class="nav-icon" aria-hidden="true">&#128276;</span>
+              <span>Notifications</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" data-timeline="bookmarks">
+              <span class="nav-icon" aria-hidden="true">&#128278;</span>
+              <span>Bookmarks</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" data-timeline="favourites">
+              <span class="nav-icon" aria-hidden="true">&#11088;</span>
+              <span>Favorites</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" data-timeline="mine">
+              <span class="nav-icon" aria-hidden="true">&#128100;</span>
+              <span>My Posts</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- Quick AI Configuration Summary -->
+      <section class="sidebar-ai-panel" aria-label="Quick AI Alt-Text Controls">
+        <h2 class="sidebar-heading">AI Alt-Text Engine</h2>
+        <div class="form-group-compact">
+          <label for="quick-provider-select">Active Provider</label>
+          <select id="quick-provider-select" class="form-control">
+            <option value="ollama">Ollama (Local Vision)</option>
+            <option value="gemini">Google Gemini API</option>
+            <option value="openai">OpenAI / Compatible API</option>
+            <option value="anthropic">Anthropic Claude API</option>
+          </select>
+        </div>
+        <div class="form-group-compact">
+          <label for="quick-detail-select">Caption Style for Blind Users</label>
+          <select id="quick-detail-select" class="form-control">
+            <option value="concise">Concise (1–2 sentences)</option>
+            <option value="descriptive">Descriptive (2–4 sentences)</option>
+            <option value="detailed">Detailed (4–7 sentences + OCR)</option>
+          </select>
+        </div>
+        <label class="checkbox-row" for="quick-auto-scan">
+          <input type="checkbox" id="quick-auto-scan" checked />
+          <span>Auto-scan image/video on attach</span>
+        </label>
+      </section>
+
+      <!-- Keyboard Shortcuts Reference -->
+      <section class="sidebar-shortcuts" aria-label="Keyboard Shortcuts">
+        <h2 class="sidebar-heading">Keyboard Shortcuts</h2>
+        <dl class="shortcuts-list">
+          <div><dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>Focus Composer</dd></div>
+          <div><dt><kbd>Alt</kbd>+<kbd>A</kbd></dt><dd>Scan All Media with AI</dd></div>
+          <div><dt><kbd>Cmd/Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>Publish Post</dd></div>
+        </dl>
+      </section>
+    </aside>
+
+    <!-- Main Center Workspace: Composer + Timeline -->
+    <main class="main-workspace" id="main-content">
+      <!-- Post Composer & AI Alt-Text Studio -->
+      <section class="composer-card" aria-labelledby="composer-heading">
+        <div class="composer-header">
+          <h2 id="composer-heading">Compose Post &amp; AI Alt-Text Studio</h2>
+          <span class="composer-badge" id="composer-guard-badge">Alt-Text Guard: Active</span>
+        </div>
+
+        <!-- Reply Context Banner -->
+        <div id="reply-context-banner" class="reply-banner hidden" role="status">
+          <div>
+            Replying to <strong id="reply-target-acct"></strong>:
+            <span id="reply-target-excerpt" class="reply-excerpt"></span>
+          </div>
+          <button type="button" id="cancel-reply-btn" class="btn btn-sm btn-ghost" aria-label="Cancel reply">
+            &times; Cancel Reply
+          </button>
+        </div>
+
+        <!-- Content Warning Input -->
+        <div id="cw-container" class="cw-container hidden">
+          <label for="cw-input" class="sr-only">Content Warning / Spoiler Text</label>
+          <input
+            type="text"
+            id="cw-input"
+            class="form-control"
+            placeholder="Content warning / spoiler summary (optional)..."
+            maxlength="200"
+          />
+        </div>
+
+        <!-- Main Post Textarea -->
+        <div class="composer-body">
+          <label for="composer-textarea" class="sr-only">Post text content</label>
+          <textarea
+            id="composer-textarea"
+            class="composer-textarea"
+            rows="3"
+            placeholder="What's on your mind? Attach an image or video below — FediCaption will automatically scan it with AI and fill in accessible alt-text for blind users."
+          ></textarea>
+        </div>
+
+        <!-- Media Dropzone & File Input -->
+        <div
+          id="media-dropzone"
+          class="media-dropzone"
+          tabindex="0"
+          role="button"
+          aria-label="Attach image or video files. Click, press Enter, drag and drop, or paste from clipboard."
+        >
+          <input
+            type="file"
+            id="media-file-input"
+            class="sr-only"
+            accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,image/*,video/*"
+            multiple
+          />
+          <div class="dropzone-content">
+            <span class="dropzone-icon" aria-hidden="true">&#128247; &#127916;</span>
+            <div class="dropzone-text">
+              <strong>Attach Image or Video</strong>
+              <span>Drag &amp; drop, click to browse, or paste (<kbd>Cmd/Ctrl+V</kbd>). Up to 4 attachments.</span>
+            </div>
+            <span class="btn btn-sm btn-secondary">Choose Media</span>
+          </div>
+        </div>
+
+        <!-- Attached Media List & AI Alt-Text Editors -->
+        <div
+          id="media-attachments-list"
+          class="media-attachments-list"
+          role="region"
+          aria-label="Attached media and AI alt-text descriptions"
+        ></div>
+
+        <!-- Composer Footer Controls -->
+        <div class="composer-footer">
+          <div class="composer-tools">
+            <button
+              type="button"
+              id="toggle-cw-btn"
+              class="btn btn-sm btn-ghost"
+              aria-pressed="false"
+              title="Toggle Content Warning (CW)"
+            >
+              CW
+            </button>
+
+            <div class="control-inline">
+              <label for="post-visibility" class="sr-only">Post Visibility</label>
+              <select id="post-visibility" class="select-compact" title="Post Visibility">
+                <option value="public">&#127760; Public</option>
+                <option value="unlisted">&#128275; Unlisted</option>
+                <option value="private">&#128274; Followers Only</option>
+                <option value="direct">&#9993; Direct Mention</option>
+              </select>
+            </div>
+
+            <div class="control-inline">
+              <label for="post-language" class="sr-only">Post Language</label>
+              <select id="post-language" class="select-compact" title="Post Language">
+                <option value="en">EN</option>
+                <option value="es">ES</option>
+                <option value="fr">FR</option>
+                <option value="de">DE</option>
+                <option value="ja">JA</option>
+                <option value="pt">PT</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              id="scan-all-media-btn"
+              class="btn btn-sm btn-accent hidden"
+              title="Scan or regenerate AI alt-text for all attached media (Alt+A)"
+            >
+              &#10024; Scan All Media with AI
+            </button>
+          </div>
+
+          <div class="composer-submit-group">
+            <span id="char-counter" class="char-counter" aria-live="polite">500</span>
+            <button type="button" id="publish-post-btn" class="btn btn-primary">
+              Publish Post
+            </button>
+          </div>
+        </div>
+
+        <!-- Composer Status / Error Banner -->
+        <div id="composer-feedback" class="composer-feedback hidden" role="alert"></div>
+      </section>
+
+      <!-- Timeline Feed Section -->
+      <section class="timeline-section" aria-labelledby="timeline-heading">
+        <div class="timeline-header">
+          <div>
+            <h2 id="timeline-heading">Home Timeline</h2>
+            <p id="timeline-subtitle" class="timeline-subtitle">Posts from people and hashtags you follow</p>
+          </div>
+          <div class="timeline-actions">
+            <button type="button" id="back-from-user-btn" class="btn btn-sm btn-ghost hidden">
+              &larr; Back to Feed
+            </button>
+            <button type="button" id="header-subscribe-btn" class="btn btn-sm btn-primary hidden">
+              + Subscribe to User
+            </button>
+            <button type="button" id="refresh-timeline-btn" class="btn btn-sm btn-secondary">
+              &#8635; Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Selected User Profile & Subscribe Banner (shown when viewing a user's personal posts) -->
+        <div
+          id="user-profile-banner"
+          class="user-profile-banner hidden"
+          role="region"
+          aria-label="Selected user profile and subscription controls"
+        ></div>
+
+        <div id="timeline-loading" class="loading-banner hidden" role="status">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading timeline...</span>
+        </div>
+
+        <div id="timeline-error" class="error-banner hidden" role="alert"></div>
+
+        <div
+          id="timeline-feed"
+          class="timeline-feed"
+          role="feed"
+          aria-busy="false"
+          aria-label="Mastodon posts"
+        ></div>
+
+        <div class="timeline-pagination">
+          <button type="button" id="load-more-btn" class="btn btn-secondary hidden">
+            Load Older Posts
+          </button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Thread / Conversation Modal Drawer -->
+  <div
+    id="thread-modal"
+    class="modal-backdrop hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="thread-modal-title"
+  >
+    <div class="modal-card modal-thread">
+      <div class="modal-header">
+        <h2 id="thread-modal-title">Conversation Thread</h2>
+        <button type="button" id="close-thread-btn" class="btn btn-sm btn-ghost" aria-label="Close thread view">
+          &times; Close
+        </button>
+      </div>
+      <div id="thread-content" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Settings & Authentication Modal -->
+  <div
+    id="settings-modal"
+    class="modal-backdrop hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="settings-modal-title"
+  >
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h2 id="settings-modal-title">FediCaption Settings — Mastodon &amp; AI Providers</h2>
+        <button type="button" id="close-settings-btn" class="btn btn-sm btn-ghost" aria-label="Close settings">
+          &times; Close
+        </button>
+      </div>
+
+      <div class="modal-tabs" role="tablist" aria-label="Settings Categories">
+        <button
+          type="button"
+          class="modal-tab active"
+          role="tab"
+          aria-selected="true"
+          data-tab="tab-ai"
+        >
+          1. AI Vision &amp; Alt-Text Providers
+        </button>
+        <button
+          type="button"
+          class="modal-tab"
+          role="tab"
+          aria-selected="false"
+          data-tab="tab-mastodon"
+        >
+          2. Mastodon Account &amp; OAuth
+        </button>
+        <button
+          type="button"
+          class="modal-tab"
+          role="tab"
+          aria-selected="false"
+          data-tab="tab-accessibility"
+        >
+          3. Accessibility Rules
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- TAB 1: AI Providers -->
+        <div id="tab-ai" class="tab-panel" role="tabpanel">
+          <div class="settings-section">
+            <h3>Select Active AI Provider</h3>
+            <p class="section-help">
+              Choose whether to scan images and videos locally on your machine (via Ollama or a local OpenAI-compatible server) or remotely using an API key.
+            </p>
+            <div class="provider-cards-grid" role="radiogroup" aria-label="AI Provider">
+              <label class="provider-radio-card">
+                <input type="radio" name="settings-ai-provider" value="ollama" />
+                <div class="provider-card-body">
+                  <strong>Ollama (Local AI)</strong>
+                  <span>Runs 100% locally on macOS &amp; Linux. Supports LLaVA, Llama 3.2 Vision, Moondream, Qwen-VL, Gemma 3.</span>
+                </div>
+              </label>
+
+              <label class="provider-radio-card">
+                <input type="radio" name="settings-ai-provider" value="gemini" />
+                <div class="provider-card-body">
+                  <strong>Google Gemini API</strong>
+                  <span>Fast multimodal API that natively understands both images and full video clips.</span>
+                </div>
+              </label>
+
+              <label class="provider-radio-card">
+                <input type="radio" name="settings-ai-provider" value="openai" />
+                <div class="provider-card-body">
+                  <strong>OpenAI / Local Server</strong>
+                  <span>Works with OpenAI (GPT-4o / GPT-4o-mini) or local LM Studio, vLLM, llama.cpp, OpenRouter.</span>
+                </div>
+              </label>
+
+              <label class="provider-radio-card">
+                <input type="radio" name="settings-ai-provider" value="anthropic" />
+                <div class="provider-card-body">
+                  <strong>Anthropic Claude API</strong>
+                  <span>High-nuance image &amp; video keyframe descriptions with Claude 3.7 / 3.5 Sonnet.</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Ollama Settings Box -->
+          <div id="provider-config-ollama" class="provider-config-box">
+            <h4>Ollama Local Configuration</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="ollama-base-url">Ollama Server URL</label>
+                <input
+                  type="url"
+                  id="ollama-base-url"
+                  class="form-control"
+                  placeholder="http://localhost:11434"
+                />
+              </div>
+              <div class="form-group">
+                <label for="ollama-model">Vision Model Name</label>
+                <div class="input-with-btn">
+                  <input
+                    type="text"
+                    id="ollama-model"
+                    class="form-control"
+                    placeholder="llava:latest or llama3.2-vision"
+                    list="ollama-models-datalist"
+                  />
+                  <datalist id="ollama-models-datalist"></datalist>
+                  <button type="button" id="detect-ollama-btn" class="btn btn-secondary">
+                    Detect Models
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div id="ollama-detect-feedback" class="help-text">
+              Tip: Install a local vision model with <code>ollama pull llava</code> or <code>ollama pull llama3.2-vision</code> or <code>ollama pull moondream</code>.
+            </div>
+          </div>
+
+          <!-- Gemini Settings Box -->
+          <div id="provider-config-gemini" class="provider-config-box hidden">
+            <h4>Google Gemini API Configuration</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="gemini-api-key">Gemini API Key</label>
+                <input
+                  type="password"
+                  id="gemini-api-key"
+                  class="form-control"
+                  placeholder="AIzaSy..."
+                  autocomplete="off"
+                />
+              </div>
+              <div class="form-group">
+                <label for="gemini-model">Gemini Model</label>
+                <input
+                  type="text"
+                  id="gemini-model"
+                  class="form-control"
+                  placeholder="gemini-2.5-flash"
+                  list="gemini-models-list"
+                />
+                <datalist id="gemini-models-list">
+                  <option value="gemini-2.5-flash"></option>
+                  <option value="gemini-2.5-pro"></option>
+                  <option value="gemini-2.0-flash"></option>
+                </datalist>
+              </div>
+            </div>
+            <p class="help-text">
+              Supports both multi-frame video analysis and native inline video upload.
+            </p>
+          </div>
+
+          <!-- OpenAI / Compatible Settings Box -->
+          <div id="provider-config-openai" class="provider-config-box hidden">
+            <h4>OpenAI or Local OpenAI-Compatible Server</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="openai-base-url">API Base URL</label>
+                <input
+                  type="url"
+                  id="openai-base-url"
+                  class="form-control"
+                  placeholder="https://api.openai.com/v1 or http://localhost:1234/v1"
+                />
+              </div>
+              <div class="form-group">
+                <label for="openai-model">Model Name</label>
+                <input
+                  type="text"
+                  id="openai-model"
+                  class="form-control"
+                  placeholder="gpt-4o-mini or gpt-4o"
+                  list="openai-models-list"
+                />
+                <datalist id="openai-models-list">
+                  <option value="gpt-4o-mini"></option>
+                  <option value="gpt-4o"></option>
+                </datalist>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="openai-api-key">API Key (leave blank for local LM Studio / llama.cpp)</label>
+              <input
+                type="password"
+                id="openai-api-key"
+                class="form-control"
+                placeholder="sk-..."
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <!-- Anthropic Settings Box -->
+          <div id="provider-config-anthropic" class="provider-config-box hidden">
+            <h4>Anthropic Claude API Configuration</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="anthropic-api-key">Anthropic API Key</label>
+                <input
+                  type="password"
+                  id="anthropic-api-key"
+                  class="form-control"
+                  placeholder="sk-ant-..."
+                  autocomplete="off"
+                />
+              </div>
+              <div class="form-group">
+                <label for="anthropic-model">Claude Vision Model</label>
+                <input
+                  type="text"
+                  id="anthropic-model"
+                  class="form-control"
+                  placeholder="claude-3-7-sonnet-latest"
+                  list="anthropic-models-list"
+                />
+                <datalist id="anthropic-models-list">
+                  <option value="claude-3-7-sonnet-latest"></option>
+                  <option value="claude-3-5-sonnet-latest"></option>
+                  <option value="claude-3-5-haiku-latest"></option>
+                </datalist>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: Mastodon Account -->
+        <div id="tab-mastodon" class="tab-panel hidden" role="tabpanel">
+          <div class="settings-section">
+            <h3>Connect Your Mastodon / Fediverse Account</h3>
+            <div class="form-group">
+              <label for="mastodon-instance-url">Instance Domain or URL</label>
+              <input
+                type="text"
+                id="mastodon-instance-url"
+                class="form-control"
+                placeholder="https://mastodon.social"
+              />
+              <span class="help-text">Examples: <code>mastodon.social</code>, <code>fosstodon.org</code>, <code>hachyderm.io</code>, <code>tech.lgbt</code></span>
+            </div>
+
+            <div class="oauth-grid">
+              <div class="oauth-card">
+                <h4>Option A: One-Click Browser OAuth</h4>
+                <p>Registers FediCaption with your instance and opens your Mastodon login page to authorize automatically.</p>
+                <button type="button" id="start-oauth-btn" class="btn btn-primary">
+                  Authorize in Browser (OAuth 2.0)
+                </button>
+              </div>
+
+              <div class="oauth-card">
+                <h4>Option B: Direct Access Token</h4>
+                <p>Paste an Access Token from <em>Preferences &rarr; Development &rarr; New Application</em> on your Mastodon server.</p>
+                <div class="input-with-btn">
+                  <input
+                    type="password"
+                    id="mastodon-access-token"
+                    class="form-control"
+                    placeholder="Paste Mastodon Access Token..."
+                    autocomplete="off"
+                  />
+                  <button type="button" id="save-token-btn" class="btn btn-secondary">
+                    Verify &amp; Save Token
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div id="mastodon-auth-feedback" class="composer-feedback hidden" role="status"></div>
+          </div>
+        </div>
+
+        <!-- TAB 3: Accessibility & Alt-Text Preferences -->
+        <div id="tab-accessibility" class="tab-panel hidden" role="tabpanel">
+          <div class="settings-section">
+            <h3>Blind &amp; Screen-Reader Captioning Preferences</h3>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="settings-require-alt">Pre-Post Alt-Text Policy</label>
+                <select id="settings-require-alt" class="form-control">
+                  <option value="warn">Warn me before posting uncaptioned media (Recommended)</option>
+                  <option value="require">Strictly require alt-text on all media before posting</option>
+                  <option value="off">Do not warn</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="settings-caption-language">Alt-Text Output Language</label>
+                <input
+                  type="text"
+                  id="settings-caption-language"
+                  class="form-control"
+                  placeholder="English"
+                />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="settings-keyframes-count">Video Keyframes Extracted for AI Analysis</label>
+                <select id="settings-keyframes-count" class="form-control">
+                  <option value="3">3 Keyframes (Faster)</option>
+                  <option value="4">4 Keyframes (Balanced - Recommended)</option>
+                  <option value="6">6 Keyframes (Detailed motion tracking)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="checkbox-row" for="settings-include-context" style="margin-top: 1.9rem;">
+                  <input type="checkbox" id="settings-include-context" checked />
+                  <span>Pass draft post text to AI for better subject/name context</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="settings-custom-instructions">Custom AI Captioning Instructions (Optional)</label>
+              <textarea
+                id="settings-custom-instructions"
+                class="form-control"
+                rows="2"
+                placeholder="e.g., Always mention camera lens style or color palette; my dog's name is Barnaby..."
+              ></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span id="config-path-display" class="config-path-display"></span>
+        <div class="modal-footer-actions">
+          <button type="button" id="save-settings-btn" class="btn btn-primary">
+            Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

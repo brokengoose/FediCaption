@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=FediCaption
+GenericName=Accessible Mastodon Client
+Comment=Mastodon client that automatically generates blind-accessible alt-text for images and videos using local or cloud AI
+Exec=fedicaption
+Terminal=false
+Categories=Network;Chat;Accessibility;
+Keywords=Mastodon;Fediverse;Accessibility;AltText;Blind;ScreenReader;AI;
+StartupNotify=true
