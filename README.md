@@ -4,6 +4,8 @@
 
 Whenever you attach an **image** or **video** to a post, FediCaption automatically scans the media using your choice of **local AI** (Ollama, LM Studio, llama.cpp) or **cloud AI** (Google Gemini, OpenAI, Anthropic Claude) and populates the Mastodon alt-text field with a clear, screen-reader-friendly description following W3C WAI and Perkins School for the Blind guidelines.
 
+> *This project was generated with **Antigravity**.*
+
 ---
 
 ## Key Features
@@ -83,3 +85,10 @@ FediCaption stores your settings and credentials with `0600` user-only permissio
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+---
+
+## Acknowledgements
+
+This project was generated with **Antigravity**.
+
