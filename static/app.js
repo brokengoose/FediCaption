@@ -1170,6 +1170,16 @@ function renderStatusCardHtml(rawStatus) {
   const displayName = account.display_name || account.username || "Unknown";
   const acct = account.acct ? `@${account.acct}` : "";
   const createdAt = formatRelativeTime(status.created_at);
+  const instanceBase = (state.config?.mastodon?.instance_url || "").replace(
+    /\/+$/,
+    ""
+  );
+  const postUrl =
+    status.url ||
+    status.uri ||
+    (instanceBase && status.id
+      ? `${instanceBase}/@${account.acct || account.username || "web"}/${status.id}`
+      : "");
   const hasCW = Boolean(status.spoiler_text && status.spoiler_text.trim());
   const myId = state.config?.mastodon?.account?.id;
   const isOwnPost = Boolean(myId && account.id === myId);
@@ -1277,7 +1287,18 @@ function renderStatusCardHtml(rawStatus) {
             <div class="status-acct">${escapeHtml(acct)}</div>
           </div>
         </button>
-        <span class="status-time" title="${escapeHtml(status.created_at || "")}">${escapeHtml(createdAt)}</span>
+        ${
+          postUrl
+            ? `<a
+                class="status-time status-time-link"
+                href="${escapeHtml(postUrl)}"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="${escapeHtml(status.created_at ? `Open original post (${status.created_at})` : "Open original post")}"
+                aria-label="Posted ${escapeHtml(createdAt)} — open original post in a new tab"
+              >${escapeHtml(createdAt)}</a>`
+            : `<span class="status-time" title="${escapeHtml(status.created_at || "")}">${escapeHtml(createdAt)}</span>`
+        }
       </div>
 
       ${cwHtml}

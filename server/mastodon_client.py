@@ -236,7 +236,7 @@ class MastodonClient:
             "client_name": "FediCaption (Accessible AI Alt-Text Client)",
             "redirect_uris": f"{redirect_uri}\nurn:ietf:wg:oauth:2.0:oob",
             "scopes": "read write follow push",
-            "website": "https://joinmastodon.org",
+            "website": "https://github.com/brokengoose/FediCaption",
         }
         data, _ = self._request("POST", "/api/v1/apps", json_body=payload)
         return data

@@ -248,6 +248,17 @@ class FediCaptionTestSuite(unittest.TestCase):
 
         client = MastodonClient("https://mastodon.social", access_token="tok_123")
         mock_urlopen.return_value = _FakeHTTPResponse(
+            {"client_id": "cid_1", "client_secret": "csec_1"},
+            status=200,
+        )
+        client.register_oauth_app("http://127.0.0.1:8765/api/mastodon/oauth/callback")
+        app_req = mock_urlopen.call_args[0][0]
+        app_payload = json.loads(app_req.data.decode("utf-8"))
+        self.assertEqual(
+            app_payload["website"], "https://github.com/brokengoose/FediCaption"
+        )
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
             {"id": "media_99", "type": "image", "description": "Accessible alt text"},
             status=200,
         )
