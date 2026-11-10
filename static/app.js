@@ -1806,23 +1806,22 @@ function applyConfigToUI(cfg) {
 
   document.getElementById("ollama-base-url").value =
     ai.ollama?.base_url || "http://localhost:11434";
-  document.getElementById("ollama-model").value =
-    ai.ollama?.model || "llava:latest";
+  setModelSelectValue("ollama-model", ai.ollama?.model || "llava:latest");
 
   document.getElementById("gemini-api-key").value = ai.gemini?.api_key || "";
-  document.getElementById("gemini-model").value =
-    ai.gemini?.model || "gemini-2.5-flash";
+  setModelSelectValue("gemini-model", ai.gemini?.model || "gemini-2.5-flash");
 
   document.getElementById("openai-base-url").value =
     ai.openai?.base_url || "https://api.openai.com/v1";
   document.getElementById("openai-api-key").value = ai.openai?.api_key || "";
-  document.getElementById("openai-model").value =
-    ai.openai?.model || "gpt-4o-mini";
+  setModelSelectValue("openai-model", ai.openai?.model || "gpt-4o-mini");
 
   document.getElementById("anthropic-api-key").value =
     ai.anthropic?.api_key || "";
-  document.getElementById("anthropic-model").value =
-    ai.anthropic?.model || "claude-3-7-sonnet-latest";
+  setModelSelectValue(
+    "anthropic-model",
+    ai.anthropic?.model || "claude-3-7-sonnet-latest"
+  );
 
   document.getElementById("mastodon-instance-url").value =
     m.instance_url || "https://mastodon.social";
@@ -1860,6 +1859,73 @@ async function refreshInstanceLimits() {
   }
 }
 
+function setModelSelectValue(selectId, value) {
+  const selectEl = document.getElementById(selectId);
+  if (!selectEl || !value) return;
+  const hasOption = Array.from(selectEl.options).some(
+    (opt) => opt.value === value
+  );
+  if (!hasOption) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    selectEl.appendChild(opt);
+  }
+  selectEl.value = value;
+}
+
+function populateModelDropdown(provider, models, preferredModel) {
+  const selectEl = document.getElementById(`${provider}-model`);
+  if (!selectEl) return;
+
+  const currentVal =
+    preferredModel ||
+    selectEl.value ||
+    state.config?.ai?.[provider]?.model ||
+    "";
+
+  const list = Array.isArray(models) ? [...models] : [];
+  if (
+    currentVal &&
+    !list.some((m) => (typeof m === "string" ? m : m.name) === currentVal)
+  ) {
+    list.unshift({
+      name: currentVal,
+      display_name: `${currentVal} (configured)`,
+      is_vision_likely: true,
+    });
+  }
+
+  if (list.length === 0) return;
+
+  selectEl.innerHTML = list
+    .map((m) => {
+      const name = typeof m === "string" ? m : m.name;
+      const displayName =
+        typeof m === "object" && m.display_name && m.display_name !== name
+          ? `${m.display_name} (${name})`
+          : name;
+      const badge =
+        typeof m === "object" && m.is_vision_likely && provider === "ollama"
+          ? " ★ Vision"
+          : "";
+      return `<option value="${escapeHtml(name)}">${escapeHtml(displayName + badge)}</option>`;
+    })
+    .join("");
+
+  if (
+    currentVal &&
+    Array.from(selectEl.options).some((o) => o.value === currentVal)
+  ) {
+    selectEl.value = currentVal;
+  } else {
+    const firstVision = list.find(
+      (m) => typeof m === "object" && m.is_vision_likely
+    );
+    selectEl.value = firstVision ? firstVision.name : list[0].name || list[0];
+  }
+}
+
 function updateVisibleProviderConfigBox(provider) {
   ["ollama", "gemini", "openai", "anthropic"].forEach((p) => {
     const box = document.getElementById(`provider-config-${p}`);
@@ -1874,6 +1940,14 @@ function openSettingsModal(tabId = "tab-ai") {
   if (!modal) return;
   modal.classList.remove("hidden");
   switchSettingsTab(tabId);
+  if (tabId === "tab-ai") {
+    const selectedProvider =
+      document.querySelector('input[name="settings-ai-provider"]:checked')
+        ?.value ||
+      state.config?.ai?.provider ||
+      "ollama";
+    fetchProviderModels(selectedProvider);
+  }
 }
 
 function closeSettingsModal() {
@@ -1891,52 +1965,79 @@ function switchSettingsTab(tabId) {
   });
 }
 
-async function detectLocalOllamaModels() {
-  const baseUrl =
-    document.getElementById("ollama-base-url")?.value ||
-    "http://localhost:11434";
-  const feedbackEl = document.getElementById("ollama-detect-feedback");
-  const datalist = document.getElementById("ollama-models-datalist");
-  const modelInput = document.getElementById("ollama-model");
+async function fetchProviderModels(provider, { announceResult = false } = {}) {
+  const targetProvider = provider || "ollama";
+  const feedbackEl = document.getElementById(
+    `${targetProvider}-detect-feedback`
+  );
+  const selectEl = document.getElementById(`${targetProvider}-model`);
+  const preferredModel =
+    selectEl?.value || state.config?.ai?.[targetProvider]?.model || "";
+
+  const reqBody = { provider: targetProvider };
+  if (targetProvider === "ollama") {
+    reqBody.base_url =
+      document.getElementById("ollama-base-url")?.value.trim() ||
+      "http://localhost:11434";
+  } else if (targetProvider === "gemini") {
+    reqBody.api_key =
+      document.getElementById("gemini-api-key")?.value.trim() || "";
+  } else if (targetProvider === "openai") {
+    reqBody.base_url =
+      document.getElementById("openai-base-url")?.value.trim() ||
+      "https://api.openai.com/v1";
+    reqBody.api_key =
+      document.getElementById("openai-api-key")?.value.trim() || "";
+  } else if (targetProvider === "anthropic") {
+    reqBody.api_key =
+      document.getElementById("anthropic-api-key")?.value.trim() || "";
+  }
 
   if (feedbackEl) {
-    feedbackEl.textContent = `Checking Ollama at ${baseUrl}...`;
+    feedbackEl.textContent = `Querying available ${targetProvider.toUpperCase()} models...`;
   }
 
   try {
-    const res = await apiRequest(
-      `/api/ai/ollama-models?base_url=${encodeURIComponent(baseUrl)}`
-    );
-    if (!res.reachable) {
-      feedbackEl.innerHTML = `<span style="color:var(--warning-color);">Could not reach Ollama at ${escapeHtml(baseUrl)}. Ensure Ollama is running (<code>ollama serve</code>).</span>`;
-      return;
-    }
+    const res = await apiRequest("/api/ai/models", {
+      method: "POST",
+      body: reqBody,
+    });
     const models = res.models || [];
-    if (models.length === 0) {
-      feedbackEl.innerHTML = `Connected to Ollama, but no models are installed yet. Run <code>ollama pull llava</code> or <code>ollama pull llama3.2-vision</code> in your terminal.`;
-      return;
+    populateModelDropdown(targetProvider, models, preferredModel);
+
+    if (res.reachable) {
+      if (models.length === 0) {
+        if (feedbackEl) {
+          feedbackEl.innerHTML = `<span style="color:var(--warning-color);">Connected to ${escapeHtml(targetProvider.toUpperCase())}, but no models were returned.</span>`;
+        }
+      } else {
+        if (feedbackEl) {
+          feedbackEl.innerHTML = `<span style="color:var(--success-color);">Loaded ${models.length} available model(s) from ${escapeHtml(targetProvider.toUpperCase())}.</span>`;
+        }
+        if (announceResult) {
+          announce(
+            `Loaded ${models.length} models from ${targetProvider}.`
+          );
+        }
+      }
+    } else {
+      if (feedbackEl) {
+        if (targetProvider === "ollama") {
+          feedbackEl.innerHTML = `<span style="color:var(--warning-color);">Could not reach Ollama at ${escapeHtml(reqBody.base_url)}. Showing default models (ensure <code>ollama serve</code> is running).</span>`;
+        } else {
+          feedbackEl.innerHTML = `<span>${escapeHtml(res.error || "Showing default models. Enter your API key and click Refresh Models to query live models.")}</span>`;
+        }
+      }
     }
-
-    datalist.innerHTML = models
-      .map((m) => `<option value="${escapeHtml(m.name)}"></option>`)
-      .join("");
-
-    const visionModels = models.filter((m) => m.is_vision_likely);
-    if (visionModels.length > 0 && modelInput) {
-      modelInput.value = visionModels[0].name;
-    } else if (models.length > 0 && modelInput && !modelInput.value) {
-      modelInput.value = models[0].name;
-    }
-
-    feedbackEl.innerHTML = `<span style="color:var(--success-color);">Found ${models.length} local Ollama model(s): ${models
-      .map((m) => `<code>${escapeHtml(m.name)}</code>`)
-      .join(", ")}</span>`;
-    announce(`Detected ${models.length} local Ollama models.`);
   } catch (err) {
     if (feedbackEl) {
-      feedbackEl.textContent = `Error checking Ollama: ${err.message}`;
+      feedbackEl.textContent = `Could not query models: ${err.message}`;
     }
   }
+}
+
+async function detectLocalOllamaModels() {
+  return fetchProviderModels("ollama", { announceResult: true });
 }
 
 async function saveSettingsFromModal() {
@@ -2133,14 +2234,48 @@ function bindEvents() {
   document
     .querySelectorAll('input[name="settings-ai-provider"]')
     .forEach((radio) => {
-      radio.addEventListener("change", () =>
-        updateVisibleProviderConfigBox(radio.value)
-      );
+      radio.addEventListener("change", () => {
+        updateVisibleProviderConfigBox(radio.value);
+        fetchProviderModels(radio.value);
+      });
     });
 
   document
     .getElementById("detect-ollama-btn")
-    ?.addEventListener("click", detectLocalOllamaModels);
+    ?.addEventListener("click", () =>
+      fetchProviderModels("ollama", { announceResult: true })
+    );
+  document
+    .getElementById("detect-gemini-btn")
+    ?.addEventListener("click", () =>
+      fetchProviderModels("gemini", { announceResult: true })
+    );
+  document
+    .getElementById("detect-openai-btn")
+    ?.addEventListener("click", () =>
+      fetchProviderModels("openai", { announceResult: true })
+    );
+  document
+    .getElementById("detect-anthropic-btn")
+    ?.addEventListener("click", () =>
+      fetchProviderModels("anthropic", { announceResult: true })
+    );
+
+  document
+    .getElementById("ollama-base-url")
+    ?.addEventListener("change", () => fetchProviderModels("ollama"));
+  document
+    .getElementById("gemini-api-key")
+    ?.addEventListener("change", () => fetchProviderModels("gemini"));
+  document
+    .getElementById("openai-base-url")
+    ?.addEventListener("change", () => fetchProviderModels("openai"));
+  document
+    .getElementById("openai-api-key")
+    ?.addEventListener("change", () => fetchProviderModels("openai"));
+  document
+    .getElementById("anthropic-api-key")
+    ?.addEventListener("change", () => fetchProviderModels("anthropic"));
   document
     .getElementById("start-oauth-btn")
     ?.addEventListener("click", startMastodonOAuth);

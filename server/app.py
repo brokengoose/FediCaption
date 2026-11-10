@@ -19,6 +19,7 @@ from server.ai_captioner import (
     _strip_data_url,
     generate_alt_text,
     list_ollama_models,
+    list_provider_models,
 )
 from server.config import (
     load_config,
@@ -146,6 +147,18 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                     "ollama", {}
                 ).get("base_url", "http://localhost:11434")
                 info = list_ollama_models(base_url)
+                self._send_json({"ok": True, **info})
+                return
+
+            if path == "/api/ai/models":
+                cfg = load_config()
+                ai_cfg = cfg.get("ai", {})
+                provider = query.get("provider") or ai_cfg.get("provider", "ollama")
+                info = list_provider_models(
+                    provider=provider,
+                    ai_config=ai_cfg,
+                    overrides=query,
+                )
                 self._send_json({"ok": True, **info})
                 return
 
@@ -318,6 +331,18 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     {"ok": True, "config": sanitize_config_for_client(updated)}
                 )
+                return
+
+            if path == "/api/ai/models":
+                cfg = load_config()
+                ai_cfg = cfg.get("ai", {})
+                provider = body.get("provider") or ai_cfg.get("provider", "ollama")
+                info = list_provider_models(
+                    provider=provider,
+                    ai_config=ai_cfg,
+                    overrides=body,
+                )
+                self._send_json({"ok": True, **info})
                 return
 
             if path == "/api/ai/caption":

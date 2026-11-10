@@ -518,6 +518,85 @@ class FediCaptionTestSuite(unittest.TestCase):
         self.assertEqual(edit_data["status"]["id"], "999")
         self.assertIn("Updated post text", edit_data["status"]["content"])
 
+    @patch("urllib.request.urlopen")
+    def test_provider_models_listing(self, mock_urlopen):
+        # 1. Gemini models query via POST /api/ai/models
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "models": [
+                    {
+                        "name": "models/gemini-2.5-flash",
+                        "displayName": "Gemini 2.5 Flash",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/text-embedding-004",
+                        "displayName": "Text Embedding 004",
+                        "supportedGenerationMethods": ["embedContent"],
+                    },
+                ]
+            }
+        )
+        code, gem_body = self._invoke_handler(
+            "POST",
+            "/api/ai/models",
+            {"provider": "gemini", "api_key": "AIzaTestKey"},
+        )
+        self.assertEqual(code, 200)
+        gem_data = json.loads(gem_body)
+        self.assertTrue(gem_data["reachable"])
+        self.assertEqual(len(gem_data["models"]), 1)
+        self.assertEqual(gem_data["models"][0]["name"], "gemini-2.5-flash")
+
+        # 2. OpenAI / compatible models query via POST /api/ai/models
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "data": [
+                    {"id": "gpt-4o-mini"},
+                    {"id": "gpt-4o"},
+                    {"id": "whisper-1"},
+                ]
+            }
+        )
+        code, oai_body = self._invoke_handler(
+            "POST",
+            "/api/ai/models",
+            {
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test",
+            },
+        )
+        self.assertEqual(code, 200)
+        oai_data = json.loads(oai_body)
+        self.assertTrue(oai_data["reachable"])
+        oai_names = [m["name"] for m in oai_data["models"]]
+        self.assertIn("gpt-4o-mini", oai_names)
+        self.assertIn("gpt-4o", oai_names)
+        self.assertNotIn("whisper-1", oai_names)
+
+        # 3. Anthropic models query via POST /api/ai/models
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "data": [
+                    {
+                        "id": "claude-3-7-sonnet-20250219",
+                        "display_name": "Claude 3.7 Sonnet",
+                    }
+                ]
+            }
+        )
+        code, ant_body = self._invoke_handler(
+            "POST",
+            "/api/ai/models",
+            {"provider": "anthropic", "api_key": "sk-ant-test"},
+        )
+        self.assertEqual(code, 200)
+        ant_data = json.loads(ant_body)
+        self.assertTrue(ant_data["reachable"])
+        ant_names = [m["name"] for m in ant_data["models"]]
+        self.assertIn("claude-3-7-sonnet-20250219", ant_names)
+
 
 if __name__ == "__main__":
     unittest.main()

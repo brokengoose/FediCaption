@@ -509,16 +509,13 @@
               <div class="form-group">
                 <label for="ollama-model">Vision Model Name</label>
                 <div class="input-with-btn">
-                  <input
-                    type="text"
-                    id="ollama-model"
-                    class="form-control"
-                    placeholder="llava:latest or llama3.2-vision"
-                    list="ollama-models-datalist"
-                  />
-                  <datalist id="ollama-models-datalist"></datalist>
+                  <select id="ollama-model" class="form-control">
+                    <option value="llava:latest">llava:latest</option>
+                    <option value="llama3.2-vision:latest">llama3.2-vision:latest</option>
+                    <option value="moondream:latest">moondream:latest</option>
+                  </select>
                   <button type="button" id="detect-ollama-btn" class="btn btn-secondary">
-                    Detect Models
+                    Refresh Models
                   </button>
                 </div>
               </div>
@@ -544,23 +541,21 @@
               </div>
               <div class="form-group">
                 <label for="gemini-model">Gemini Model</label>
-                <input
-                  type="text"
-                  id="gemini-model"
-                  class="form-control"
-                  placeholder="gemini-2.5-flash"
-                  list="gemini-models-list"
-                />
-                <datalist id="gemini-models-list">
-                  <option value="gemini-2.5-flash"></option>
-                  <option value="gemini-2.5-pro"></option>
-                  <option value="gemini-2.0-flash"></option>
-                </datalist>
+                <div class="input-with-btn">
+                  <select id="gemini-model" class="form-control">
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (gemini-2.5-flash)</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (gemini-2.5-pro)</option>
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash (gemini-2.0-flash)</option>
+                  </select>
+                  <button type="button" id="detect-gemini-btn" class="btn btn-secondary">
+                    Refresh Models
+                  </button>
+                </div>
               </div>
             </div>
-            <p class="help-text">
+            <div id="gemini-detect-feedback" class="help-text">
               Supports both multi-frame video analysis and native inline video upload.
-            </p>
+            </div>
           </div>
 
           <!-- OpenAI / Compatible Settings Box -->
@@ -578,17 +573,15 @@
               </div>
               <div class="form-group">
                 <label for="openai-model">Model Name</label>
-                <input
-                  type="text"
-                  id="openai-model"
-                  class="form-control"
-                  placeholder="gpt-4o-mini or gpt-4o"
-                  list="openai-models-list"
-                />
-                <datalist id="openai-models-list">
-                  <option value="gpt-4o-mini"></option>
-                  <option value="gpt-4o"></option>
-                </datalist>
+                <div class="input-with-btn">
+                  <select id="openai-model" class="form-control">
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    <option value="gpt-4o">gpt-4o</option>
+                  </select>
+                  <button type="button" id="detect-openai-btn" class="btn btn-secondary">
+                    Refresh Models
+                  </button>
+                </div>
               </div>
             </div>
             <div class="form-group">
@@ -600,6 +593,9 @@
                 placeholder="sk-..."
                 autocomplete="off"
               />
+            </div>
+            <div id="openai-detect-feedback" class="help-text">
+              Queries <code>/models</code> from OpenAI or your local server (LM Studio, vLLM, llama.cpp).
             </div>
           </div>
 
@@ -619,19 +615,20 @@
               </div>
               <div class="form-group">
                 <label for="anthropic-model">Claude Vision Model</label>
-                <input
-                  type="text"
-                  id="anthropic-model"
-                  class="form-control"
-                  placeholder="claude-3-7-sonnet-latest"
-                  list="anthropic-models-list"
-                />
-                <datalist id="anthropic-models-list">
-                  <option value="claude-3-7-sonnet-latest"></option>
-                  <option value="claude-3-5-sonnet-latest"></option>
-                  <option value="claude-3-5-haiku-latest"></option>
-                </datalist>
+                <div class="input-with-btn">
+                  <select id="anthropic-model" class="form-control">
+                    <option value="claude-3-7-sonnet-latest">Claude 3.7 Sonnet (claude-3-7-sonnet-latest)</option>
+                    <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet (claude-3-5-sonnet-latest)</option>
+                    <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (claude-3-5-haiku-latest)</option>
+                  </select>
+                  <button type="button" id="detect-anthropic-btn" class="btn btn-secondary">
+                    Refresh Models
+                  </button>
+                </div>
               </div>
+            </div>
+            <div id="anthropic-detect-feedback" class="help-text">
+              Enter your Anthropic API key to query available Claude models.
             </div>
           </div>
         </div>

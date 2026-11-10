@@ -254,14 +254,353 @@ def list_ollama_models(base_url: str = "http://localhost:11434") -> Dict[str, An
                 )
             # Sort vision-likely models first
             models.sort(key=lambda x: (not x["is_vision_likely"], x["name"]))
-            return {"reachable": True, "models": models, "base_url": base_url}
+            return {
+                "reachable": True,
+                "provider": "ollama",
+                "models": models,
+                "base_url": base_url,
+            }
     except Exception as exc:
         return {
             "reachable": False,
+            "provider": "ollama",
             "models": [],
             "base_url": base_url,
             "error": str(exc),
         }
+
+
+DEFAULT_GEMINI_MODELS = [
+    {"name": "gemini-2.5-flash", "display_name": "Gemini 2.5 Flash", "is_vision_likely": True},
+    {"name": "gemini-2.5-pro", "display_name": "Gemini 2.5 Pro", "is_vision_likely": True},
+    {"name": "gemini-2.0-flash", "display_name": "Gemini 2.0 Flash", "is_vision_likely": True},
+    {"name": "gemini-1.5-pro", "display_name": "Gemini 1.5 Pro", "is_vision_likely": True},
+    {"name": "gemini-1.5-flash", "display_name": "Gemini 1.5 Flash", "is_vision_likely": True},
+]
+
+DEFAULT_OPENAI_MODELS = [
+    {"name": "gpt-4o-mini", "display_name": "gpt-4o-mini", "is_vision_likely": True},
+    {"name": "gpt-4o", "display_name": "gpt-4o", "is_vision_likely": True},
+    {"name": "gpt-4.1-mini", "display_name": "gpt-4.1-mini", "is_vision_likely": True},
+    {"name": "gpt-4.1", "display_name": "gpt-4.1", "is_vision_likely": True},
+    {"name": "gpt-4-turbo", "display_name": "gpt-4-turbo", "is_vision_likely": True},
+]
+
+DEFAULT_ANTHROPIC_MODELS = [
+    {"name": "claude-3-7-sonnet-latest", "display_name": "Claude 3.7 Sonnet (latest)", "is_vision_likely": True},
+    {"name": "claude-3-5-sonnet-latest", "display_name": "Claude 3.5 Sonnet (latest)", "is_vision_likely": True},
+    {"name": "claude-3-5-haiku-latest", "display_name": "Claude 3.5 Haiku (latest)", "is_vision_likely": True},
+    {"name": "claude-3-opus-latest", "display_name": "Claude 3 Opus (latest)", "is_vision_likely": True},
+]
+
+
+def list_gemini_models(api_key: str) -> Dict[str, Any]:
+    """Query Google Gemini API for available generative models."""
+    api_key = (api_key or "").strip()
+    if not api_key:
+        return {
+            "reachable": False,
+            "provider": "gemini",
+            "models": list(DEFAULT_GEMINI_MODELS),
+            "error": "No Gemini API key configured yet; showing default models.",
+        }
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models"
+        f"?key={urllib.parse.quote(api_key)}"
+    )
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(
+            req, timeout=8, context=_create_ssl_context()
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            raw_models = data.get("models", [])
+            models = []
+            excluded_substrings = (
+                "embedding",
+                "aqa",
+                "text-bison",
+                "chat-bison",
+                "imagen",
+                "veo",
+                "tts",
+            )
+            for m in raw_models:
+                raw_name = m.get("name", "")
+                name = (
+                    raw_name[len("models/") :]
+                    if raw_name.startswith("models/")
+                    else raw_name
+                )
+                if not name:
+                    continue
+                lower_name = name.lower()
+                if any(ex in lower_name for ex in excluded_substrings):
+                    continue
+                methods = m.get("supportedGenerationMethods") or []
+                if methods and "generateContent" not in methods:
+                    continue
+                is_vision = any(
+                    prefix in lower_name
+                    for prefix in ("gemini-2.5", "gemini-2.0", "gemini-1.5", "gemini-", "gemma-3")
+                )
+                models.append(
+                    {
+                        "name": name,
+                        "display_name": m.get("displayName") or name,
+                        "is_vision_likely": is_vision,
+                    }
+                )
+            models.sort(
+                key=lambda x: (
+                    not x["is_vision_likely"],
+                    not x["name"].startswith("gemini-2.5"),
+                    not x["name"].startswith("gemini-2.0"),
+                    x["name"],
+                )
+            )
+            return {
+                "reachable": True,
+                "provider": "gemini",
+                "models": models or list(DEFAULT_GEMINI_MODELS),
+            }
+    except Exception as exc:
+        return {
+            "reachable": False,
+            "provider": "gemini",
+            "models": list(DEFAULT_GEMINI_MODELS),
+            "error": str(exc),
+        }
+
+
+def list_openai_models(
+    base_url: str = "https://api.openai.com/v1",
+    api_key: str = "",
+) -> Dict[str, Any]:
+    """Query OpenAI or an OpenAI-compatible server for available models."""
+    base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+    api_key = (api_key or "").strip()
+    is_local = any(
+        host in base_url for host in ("localhost", "127.0.0.1", "0.0.0.0", ".local")
+    )
+    if not api_key and not is_local:
+        return {
+            "reachable": False,
+            "provider": "openai",
+            "base_url": base_url,
+            "models": list(DEFAULT_OPENAI_MODELS),
+            "error": "No OpenAI API key configured yet; showing default models.",
+        }
+
+    url = f"{base_url}/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(
+            req, timeout=8, context=_create_ssl_context()
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            raw_list = data.get("data") if isinstance(data, dict) else None
+            if raw_list is None and isinstance(data, dict):
+                raw_list = data.get("models", [])
+            if not isinstance(raw_list, list):
+                raw_list = []
+
+            is_official_openai = "api.openai.com" in base_url
+            excluded_openai_prefixes = (
+                "whisper",
+                "tts",
+                "dall-e",
+                "text-embedding",
+                "embedding",
+                "babbage",
+                "davinci",
+                "omni-moderation",
+                "text-moderation",
+                "gpt-3.5",
+                "canary",
+            )
+            excluded_openai_substrings = (
+                "-audio-",
+                "-realtime-",
+                "-transcribe",
+                "-tts",
+                "-search-",
+            )
+            vision_keywords = VISION_MODEL_KEYWORDS + (
+                "gpt-4o",
+                "gpt-4.1",
+                "gpt-4.5",
+                "gpt-4-turbo",
+                "chatgpt-4o",
+                "o1",
+                "o3",
+                "o4",
+                "claude",
+                "gemini",
+            )
+
+            models = []
+            seen = set()
+            for m in raw_list:
+                if isinstance(m, str):
+                    name = m
+                elif isinstance(m, dict):
+                    name = m.get("id") or m.get("name") or ""
+                else:
+                    continue
+                name = name.strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                lower_name = name.lower()
+                if is_official_openai:
+                    if lower_name.startswith(excluded_openai_prefixes):
+                        continue
+                    if any(sub in lower_name for sub in excluded_openai_substrings):
+                        continue
+
+                is_vision = any(kw in lower_name for kw in vision_keywords)
+                models.append(
+                    {
+                        "name": name,
+                        "display_name": name,
+                        "is_vision_likely": is_vision,
+                    }
+                )
+
+            models.sort(key=lambda x: (not x["is_vision_likely"], x["name"]))
+            return {
+                "reachable": True,
+                "provider": "openai",
+                "base_url": base_url,
+                "models": models or (list(DEFAULT_OPENAI_MODELS) if is_official_openai else []),
+            }
+    except Exception as exc:
+        return {
+            "reachable": False,
+            "provider": "openai",
+            "base_url": base_url,
+            "models": list(DEFAULT_OPENAI_MODELS),
+            "error": str(exc),
+        }
+
+
+def list_anthropic_models(api_key: str) -> Dict[str, Any]:
+    """Query Anthropic API for available Claude models."""
+    api_key = (api_key or "").strip()
+    if not api_key:
+        return {
+            "reachable": False,
+            "provider": "anthropic",
+            "models": list(DEFAULT_ANTHROPIC_MODELS),
+            "error": "No Anthropic API key configured yet; showing default models.",
+        }
+
+    url = "https://api.anthropic.com/v1/models"
+    headers = {
+        "Accept": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(
+            req, timeout=8, context=_create_ssl_context()
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            raw_list = data.get("data", [])
+            models = []
+            seen = set()
+            for m in raw_list:
+                name = (m.get("id") or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                display_name = m.get("display_name") or name
+                is_vision = "claude-3" in name.lower() or "claude-4" in name.lower() or "sonnet" in name.lower() or "opus" in name.lower() or "haiku" in name.lower()
+                models.append(
+                    {
+                        "name": name,
+                        "display_name": display_name,
+                        "is_vision_likely": is_vision,
+                    }
+                )
+            # Also include convenient "-latest" aliases if not returned by /v1/models
+            for alias in DEFAULT_ANTHROPIC_MODELS:
+                if alias["name"] not in seen:
+                    models.append(dict(alias))
+            return {
+                "reachable": True,
+                "provider": "anthropic",
+                "models": models or list(DEFAULT_ANTHROPIC_MODELS),
+            }
+    except Exception as exc:
+        return {
+            "reachable": False,
+            "provider": "anthropic",
+            "models": list(DEFAULT_ANTHROPIC_MODELS),
+            "error": str(exc),
+        }
+
+
+def list_provider_models(
+    provider: str,
+    ai_config: Optional[Dict[str, Any]] = None,
+    overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Query the specified AI provider for its list of available models."""
+    provider = (provider or "ollama").strip().lower()
+    ai_cfg = ai_config or {}
+    ovr = overrides or {}
+
+    if provider == "ollama":
+        base_url = (
+            ovr.get("base_url")
+            or ai_cfg.get("ollama", {}).get("base_url")
+            or "http://localhost:11434"
+        )
+        return list_ollama_models(base_url=base_url)
+
+    if provider == "gemini":
+        api_key = (
+            ovr.get("api_key")
+            if "api_key" in ovr and ovr.get("api_key")
+            else ai_cfg.get("gemini", {}).get("api_key", "")
+        )
+        return list_gemini_models(api_key=api_key)
+
+    if provider == "openai":
+        base_url = (
+            ovr.get("base_url")
+            or ai_cfg.get("openai", {}).get("base_url")
+            or "https://api.openai.com/v1"
+        )
+        api_key = (
+            ovr.get("api_key")
+            if "api_key" in ovr and ovr.get("api_key")
+            else ai_cfg.get("openai", {}).get("api_key", "")
+        )
+        return list_openai_models(base_url=base_url, api_key=api_key)
+
+    if provider == "anthropic":
+        api_key = (
+            ovr.get("api_key")
+            if "api_key" in ovr and ovr.get("api_key")
+            else ai_cfg.get("anthropic", {}).get("api_key", "")
+        )
+        return list_anthropic_models(api_key=api_key)
+
+    return {
+        "reachable": False,
+        "provider": provider,
+        "models": [],
+        "error": f"Unknown AI provider: {provider}",
+    }
 
 
 def generate_with_ollama(
