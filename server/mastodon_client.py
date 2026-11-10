@@ -528,6 +528,44 @@ class MastodonClient:
         )
         return data
 
+    def get_status_source(self, status_id: str) -> Dict[str, Any]:
+        """Fetch the raw unformatted text and spoiler_text of a status for editing."""
+        data, _ = self._request(
+            "GET", f"/api/v1/statuses/{status_id}/source", require_auth=True
+        )
+        return data if isinstance(data, dict) else {}
+
+    def edit_status(
+        self,
+        status_id: str,
+        status_text: str,
+        media_ids: Optional[List[str]] = None,
+        media_attributes: Optional[List[Dict[str, str]]] = None,
+        spoiler_text: str = "",
+        sensitive: bool = False,
+        language: str = "en",
+    ) -> Dict[str, Any]:
+        """Edit an existing status on Mastodon (PUT /api/v1/statuses/:id)."""
+        payload: Dict[str, Any] = {
+            "status": status_text,
+            "spoiler_text": spoiler_text.strip() if spoiler_text else "",
+            "sensitive": bool(sensitive or (spoiler_text and spoiler_text.strip())),
+        }
+        if media_ids is not None:
+            payload["media_ids"] = media_ids
+        if media_attributes:
+            payload["media_attributes"] = media_attributes
+        if language:
+            payload["language"] = language
+
+        data, _ = self._request(
+            "PUT",
+            f"/api/v1/statuses/{status_id}",
+            json_body=payload,
+            require_auth=True,
+        )
+        return data
+
     def status_action(self, status_id: str, action: str) -> Dict[str, Any]:
         """Perform an action on a status: favourite, unfavourite, reblog, unreblog, bookmark, unbookmark, delete."""
         valid_actions = {

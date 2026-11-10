@@ -449,6 +449,64 @@ class FediCaptionTestSuite(unittest.TestCase):
         sub_data = json.loads(sub_body)
         self.assertTrue(sub_data["relationship"]["following"])
 
+    @patch("urllib.request.urlopen")
+    def test_edit_own_status(self, mock_urlopen):
+        save_config(
+            {
+                "mastodon": {
+                    "instance_url": "https://mastodon.social",
+                    "access_token": "tok_edit_test",
+                }
+            }
+        )
+
+        # 1. Fetch raw status source via GET /api/mastodon/status/source?id=999
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "id": "999",
+                "text": "Original post text",
+                "spoiler_text": "",
+            }
+        )
+        code, src_body = self._invoke_handler(
+            "GET", "/api/mastodon/status/source?id=999"
+        )
+        self.assertEqual(code, 200)
+        src_data = json.loads(src_body)
+        self.assertEqual(src_data["source"]["text"], "Original post text")
+
+        # 2. Edit status via PUT /api/mastodon/status
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "id": "999",
+                "content": "<p>Updated post text</p>",
+                "edited_at": "2026-11-09T22:00:00.000Z",
+            }
+        )
+        code, edit_body = self._invoke_handler(
+            "PUT",
+            "/api/mastodon/status",
+            {
+                "status_id": "999",
+                "status": "Updated post text",
+                "media_ids": ["med_1"],
+                "media_attributes": [
+                    {
+                        "id": "med_1",
+                        "description": "AI generated description: A cat sleeping on a windowsill.",
+                    }
+                ],
+                "spoiler_text": "",
+                "sensitive": False,
+                "language": "en",
+            },
+        )
+        self.assertEqual(code, 200)
+        edit_data = json.loads(edit_body)
+        self.assertTrue(edit_data["ok"])
+        self.assertEqual(edit_data["status"]["id"], "999")
+        self.assertIn("Updated post text", edit_data["status"]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

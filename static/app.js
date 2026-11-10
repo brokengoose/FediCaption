@@ -10,8 +10,9 @@ const state = {
   selectedUserRelationship: null,
   statuses: [],
   notifications: [],
-  attachments: [], // Array of { id, file, mediaType, mimeType, previewUrl, fileB64, aiFramesB64, altText, status, providerUsed, errorMsg, detailLevel }
+  attachments: [], // Array of { id, file, mediaType, mimeType, previewUrl, fileB64, aiFramesB64, altText, status, providerUsed, errorMsg, detailLevel, existingMediaId, remoteUrl }
   replyToStatus: null,
+  editingStatus: null,
   cwEnabled: false,
   isPublishing: false,
 };
@@ -320,6 +321,10 @@ async function generateAltTextForAttachment(attachmentId) {
       images_b64: att.aiFramesB64,
       raw_media_b64: att.mediaType === "video" ? att.fileB64 : undefined,
       raw_media_mime: att.mimeType,
+      remote_url:
+        (!att.aiFramesB64 || att.aiFramesB64.length === 0) && att.remoteUrl
+          ? att.remoteUrl
+          : undefined,
       post_context: postContext,
       detail_level: att.detailLevel,
       ai_override: {
@@ -648,75 +653,128 @@ async function publishPost(bypassWarn = false) {
     return;
   }
 
+  const isEditing = Boolean(state.editingStatus?.id);
   state.isPublishing = true;
   const publishBtn = document.getElementById("publish-post-btn");
   if (publishBtn) {
     publishBtn.disabled = true;
-    publishBtn.textContent = "Publishing...";
+    publishBtn.textContent = isEditing ? "Saving..." : "Publishing...";
   }
 
   try {
     const mediaIds = [];
+    const mediaAttributes = [];
     for (let i = 0; i < state.attachments.length; i++) {
       const att = state.attachments[i];
-      showComposerFeedback(
-        `Uploading ${att.mediaType} ${i + 1} of ${state.attachments.length} with alt-text to Mastodon...`,
-        "info"
-      );
-      // eslint-disable-next-line no-await-in-loop
-      const uploadRes = await apiRequest("/api/mastodon/media", {
-        method: "POST",
-        body: {
-          file_b64: att.fileB64,
-          filename: att.filename,
-          mime_type: att.mimeType,
+      if (att.existingMediaId) {
+        mediaIds.push(att.existingMediaId);
+        mediaAttributes.push({
+          id: att.existingMediaId,
           description: (att.altText || "").trim(),
-        },
-      });
-      if (uploadRes.media?.id) {
-        mediaIds.push(uploadRes.media.id);
+        });
+      } else {
+        showComposerFeedback(
+          `Uploading ${att.mediaType} ${i + 1} of ${state.attachments.length} with alt-text to Mastodon...`,
+          "info"
+        );
+        // eslint-disable-next-line no-await-in-loop
+        const uploadRes = await apiRequest("/api/mastodon/media", {
+          method: "POST",
+          body: {
+            file_b64: att.fileB64,
+            filename: att.filename,
+            mime_type: att.mimeType,
+            description: (att.altText || "").trim(),
+          },
+        });
+        if (uploadRes.media?.id) {
+          mediaIds.push(uploadRes.media.id);
+        }
       }
     }
 
-    showComposerFeedback("Publishing status to Mastodon...", "info");
-    const postRes = await apiRequest("/api/mastodon/status", {
-      method: "POST",
-      body: {
-        status: statusText,
-        media_ids: mediaIds,
-        spoiler_text: spoilerText,
-        visibility,
-        language,
-        in_reply_to_id: state.replyToStatus?.id || null,
-      },
-    });
+    if (isEditing) {
+      showComposerFeedback("Saving edited post to Mastodon...", "info");
+      const editRes = await apiRequest("/api/mastodon/status", {
+        method: "PUT",
+        body: {
+          status_id: state.editingStatus.id,
+          status: statusText,
+          media_ids: mediaIds,
+          media_attributes: mediaAttributes,
+          spoiler_text: spoilerText,
+          language,
+        },
+      });
 
-    // Reset composer
-    document.getElementById("composer-textarea").value = "";
-    document.getElementById("cw-input").value = "";
-    updateCharCounter();
-    clearReplyContext();
-    state.attachments.forEach((a) => {
-      if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    });
-    state.attachments = [];
-    renderAttachments();
+      const updatedStatus = editRes.status;
+      if (updatedStatus) {
+        state.statuses = state.statuses.map((s) => {
+          if (s.id === updatedStatus.id) return updatedStatus;
+          if (s.reblog && s.reblog.id === updatedStatus.id) {
+            return { ...s, reblog: updatedStatus };
+          }
+          return s;
+        });
+        renderTimeline();
+      }
 
-    showComposerFeedback("Post published with accessible alt-text!", "success");
-    announce("Post published to Mastodon successfully!");
+      document.getElementById("composer-textarea").value = "";
+      document.getElementById("cw-input").value = "";
+      updateCharCounter();
+      clearEditContext();
+      state.attachments.forEach((a) => {
+        if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
+      });
+      state.attachments = [];
+      renderAttachments();
 
-    if (postRes.status && ["home", "local", "federated", "mine"].includes(state.currentTimeline)) {
-      state.statuses.unshift(postRes.status);
-      renderTimeline();
+      showComposerFeedback("Post updated successfully!", "success");
+      announce("Your post has been updated on Mastodon!");
+    } else {
+      showComposerFeedback("Publishing status to Mastodon...", "info");
+      const postRes = await apiRequest("/api/mastodon/status", {
+        method: "POST",
+        body: {
+          status: statusText,
+          media_ids: mediaIds,
+          spoiler_text: spoilerText,
+          visibility,
+          language,
+          in_reply_to_id: state.replyToStatus?.id || null,
+        },
+      });
+
+      // Reset composer
+      document.getElementById("composer-textarea").value = "";
+      document.getElementById("cw-input").value = "";
+      updateCharCounter();
+      clearReplyContext();
+      state.attachments.forEach((a) => {
+        if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
+      });
+      state.attachments = [];
+      renderAttachments();
+
+      showComposerFeedback("Post published with accessible alt-text!", "success");
+      announce("Post published to Mastodon successfully!");
+
+      if (postRes.status && ["home", "local", "federated", "mine", "account"].includes(state.currentTimeline)) {
+        state.statuses.unshift(postRes.status);
+        renderTimeline();
+      }
     }
   } catch (err) {
-    showComposerFeedback(err.message || "Failed to publish post.", "error");
-    announce(`Failed to publish post: ${err.message}`, true);
+    showComposerFeedback(
+      err.message || (isEditing ? "Failed to update post." : "Failed to publish post."),
+      "error"
+    );
+    announce(`Failed: ${err.message}`, true);
   } finally {
     state.isPublishing = false;
     if (publishBtn) {
       publishBtn.disabled = false;
-      publishBtn.textContent = "Publish Post";
+      publishBtn.textContent = state.editingStatus ? "Save Changes" : "Publish Post";
     }
   }
 }
@@ -1291,6 +1349,15 @@ function renderStatusCardHtml(rawStatus) {
             ? `<button
                  type="button"
                  class="action-btn"
+                 data-action="edit"
+                 data-status-id="${escapeHtml(status.id)}"
+                 aria-label="Edit your post"
+               >
+                 &#9998; Edit
+               </button>
+               <button
+                 type="button"
+                 class="action-btn"
                  style="color:var(--danger-color);"
                  data-action="delete"
                  data-status-id="${escapeHtml(status.id)}"
@@ -1386,6 +1453,7 @@ function startReplyToStatus(statusId) {
   const target = findStatusById(statusId);
   if (!target) return;
 
+  clearEditContext();
   state.replyToStatus = target;
   const banner = document.getElementById("reply-context-banner");
   const acctEl = document.getElementById("reply-target-acct");
@@ -1417,6 +1485,103 @@ function startReplyToStatus(statusId) {
 function clearReplyContext() {
   state.replyToStatus = null;
   document.getElementById("reply-context-banner")?.classList.add("hidden");
+}
+
+async function startEditStatus(statusId) {
+  const target = findStatusById(statusId);
+  if (!target) return;
+
+  clearReplyContext();
+  state.editingStatus = target;
+
+  const banner = document.getElementById("edit-context-banner");
+  const excerptEl = document.getElementById("edit-target-excerpt");
+  const textarea = document.getElementById("composer-textarea");
+  const publishBtn = document.getElementById("publish-post-btn");
+
+  const plainExcerpt = stripHtmlTags(target.content).slice(0, 110);
+  if (excerptEl) excerptEl.textContent = plainExcerpt;
+  banner?.classList.remove("hidden");
+  if (publishBtn) publishBtn.textContent = "Save Changes";
+
+  // Pre-fill with fallback plain text immediately, then fetch exact raw source from Mastodon
+  textarea.value = stripHtmlTags(target.content);
+  if (target.spoiler_text) {
+    state.cwEnabled = true;
+    document.getElementById("cw-container")?.classList.remove("hidden");
+    document.getElementById("cw-input").value = target.spoiler_text;
+  } else {
+    state.cwEnabled = false;
+    document.getElementById("cw-container")?.classList.add("hidden");
+    document.getElementById("cw-input").value = "";
+  }
+  if (target.language) {
+    const langSelect = document.getElementById("post-language");
+    if (langSelect) langSelect.value = target.language;
+  }
+
+  // Load existing media attachments into composer so their alt-text can also be edited
+  state.attachments.forEach((a) => {
+    if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
+  });
+  const defaultDetail = state.config?.ai?.detail_level || "descriptive";
+  state.attachments = Array.isArray(target.media_attachments)
+    ? target.media_attachments.map((m, idx) => {
+        const isVideo = m.type === "video" || m.type === "gifv";
+        const alt = (m.description || "").trim();
+        return {
+          id: `att-${attachmentIdCounter++}`,
+          existingMediaId: m.id,
+          file: null,
+          filename: `${isVideo ? "video" : "image"}-${idx + 1}`,
+          mediaType: isVideo ? "video" : "image",
+          mimeType: isVideo ? "video/mp4" : "image/jpeg",
+          previewUrl: m.preview_url || m.url || "",
+          remoteUrl: m.preview_url || m.url || "",
+          fileB64: null,
+          aiFramesB64: [],
+          altText: alt,
+          status: alt ? "ready" : "missing",
+          providerUsed: "",
+          errorMsg: "",
+          detailLevel: defaultDetail,
+        };
+      })
+    : [];
+  renderAttachments();
+  updateCharCounter();
+
+  try {
+    const res = await apiRequest(
+      `/api/mastodon/status/source?id=${encodeURIComponent(statusId)}`
+    );
+    if (res.source && typeof res.source.text === "string") {
+      textarea.value = res.source.text;
+      if (typeof res.source.spoiler_text === "string") {
+        if (res.source.spoiler_text) {
+          state.cwEnabled = true;
+          document.getElementById("cw-container")?.classList.remove("hidden");
+          document.getElementById("cw-input").value = res.source.spoiler_text;
+        }
+      }
+      updateCharCounter();
+    }
+  } catch (_) {
+    // Keep fallback stripped HTML text if source endpoint fails
+  }
+
+  document
+    .querySelector(".composer-card")
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  textarea.focus();
+  announce("Editing your post in the composer.");
+}
+
+function clearEditContext() {
+  state.editingStatus = null;
+  document.getElementById("edit-context-banner")?.classList.add("hidden");
+  const publishBtn = document.getElementById("publish-post-btn");
+  if (publishBtn) publishBtn.textContent = "Publish Post";
 }
 
 async function performStatusAction(statusId, baseAction, isCurrentlyActive) {
@@ -2083,6 +2248,20 @@ function bindEvents() {
     .getElementById("cancel-reply-btn")
     ?.addEventListener("click", clearReplyContext);
   document
+    .getElementById("cancel-edit-btn")
+    ?.addEventListener("click", () => {
+      clearEditContext();
+      document.getElementById("composer-textarea").value = "";
+      document.getElementById("cw-input").value = "";
+      state.attachments.forEach((a) => {
+        if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
+      });
+      state.attachments = [];
+      renderAttachments();
+      updateCharCounter();
+      announce("Canceled editing post.");
+    });
+  document
     .getElementById("scan-all-media-btn")
     ?.addEventListener("click", scanAllAttachmentsWithAI);
   document
@@ -2189,6 +2368,8 @@ function bindEvents() {
       }
     } else if (action === "reply") {
       startReplyToStatus(statusId);
+    } else if (action === "edit") {
+      startEditStatus(statusId);
     } else if (["reblog", "favourite", "bookmark", "delete"].includes(action)) {
       const isActive = btn.dataset.active === "true";
       performStatusAction(statusId, action, isActive);

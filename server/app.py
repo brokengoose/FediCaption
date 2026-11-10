@@ -245,6 +245,16 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, **thread})
                 return
 
+            if path == "/api/mastodon/status/source":
+                status_id = query.get("id", "").strip()
+                if not status_id:
+                    self._send_error_json("Missing status id", 400)
+                    return
+                client = _get_mastodon_client()
+                source = client.get_status_source(status_id)
+                self._send_json({"ok": True, "source": source})
+                return
+
             if path == "/api/mastodon/oauth/callback":
                 code = query.get("code", "").strip()
                 if not code:
@@ -547,6 +557,37 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                     return
                 updated = client.update_media_description(media_id, description)
                 self._send_json({"ok": True, "media": updated})
+                return
+
+            if path == "/api/mastodon/status":
+                client = _get_mastodon_client()
+                status_id = body.get("status_id", "").strip()
+                if not status_id:
+                    self._send_error_json("status_id is required", 400)
+                    return
+                status_text = body.get("status", "")
+                media_ids = body.get("media_ids")
+                media_attributes = body.get("media_attributes")
+                spoiler_text = body.get("spoiler_text", "")
+                sensitive = bool(body.get("sensitive", False))
+                language = body.get("language", "en")
+
+                if not status_text.strip() and not media_ids:
+                    self._send_error_json(
+                        "Cannot save an empty post without text or media.", 400
+                    )
+                    return
+
+                updated_status = client.edit_status(
+                    status_id=status_id,
+                    status_text=status_text,
+                    media_ids=media_ids,
+                    media_attributes=media_attributes,
+                    spoiler_text=spoiler_text,
+                    sensitive=sensitive,
+                    language=language,
+                )
+                self._send_json({"ok": True, "status": updated_status})
                 return
 
             self._send_error_json(f"Unknown endpoint: {path}", 404)
