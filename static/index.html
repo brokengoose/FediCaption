@@ -37,7 +37,10 @@
         </svg>
       </div>
       <div>
-        <h1 class="app-title">FediCaption</h1>
+        <h1 class="app-title">
+          FediCaption
+          <span id="app-version-badge" class="version-badge" aria-label="Current version">v1.0.0</span>
+        </h1>
         <p class="app-subtitle">Accessible Mastodon Client &bull; Automatic AI Image &amp; Video Alt-Text</p>
       </div>
     </div>
@@ -65,6 +68,40 @@
       </button>
     </div>
   </header>
+
+  <!-- Update Available Notification Banner on Main Page -->
+  <div
+    id="update-notification-banner"
+    class="update-notification-banner hidden"
+    role="region"
+    aria-label="Update available notification"
+  >
+    <div class="update-banner-content">
+      <span class="update-badge">Update Available</span>
+      <span id="update-banner-text">
+        A newer version of FediCaption is available on GitHub.
+      </span>
+    </div>
+    <div class="update-banner-actions">
+      <a
+        id="update-banner-link"
+        href="https://github.com/brokengoose/FediCaption"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="btn btn-sm btn-accent"
+      >
+        View Update on GitHub &#8599;
+      </a>
+      <button
+        type="button"
+        id="dismiss-update-banner-btn"
+        class="btn btn-sm btn-ghost"
+        aria-label="Dismiss update notification"
+      >
+        &times; Dismiss
+      </button>
+    </div>
+  </div>
 
   <!-- Main Three-Area Workspace -->
   <div class="app-layout">

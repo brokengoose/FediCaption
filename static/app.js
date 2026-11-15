@@ -2892,6 +2892,13 @@ function bindEvents() {
       closeBiasReviewModal();
       publishPost(true, true);
     });
+  document
+    .getElementById("dismiss-update-banner-btn")
+    ?.addEventListener("click", () => {
+      document
+        .getElementById("update-notification-banner")
+        ?.classList.add("hidden");
+    });
 
   // Global keyboard shortcuts
   window.addEventListener("keydown", (e) => {
@@ -2925,6 +2932,33 @@ function bindEvents() {
   });
 }
 
+async function checkForAppUpdate() {
+  try {
+    const res = await apiRequest("/api/version");
+    const verBadge = document.getElementById("app-version-badge");
+    if (verBadge && res.current_version) {
+      verBadge.textContent = `v${res.current_version}`;
+    }
+    if (res.update_available && res.latest_version) {
+      const bannerEl = document.getElementById("update-notification-banner");
+      const textEl = document.getElementById("update-banner-text");
+      const linkEl = document.getElementById("update-banner-link");
+      if (textEl) {
+        textEl.textContent = `Update available: FediCaption v${res.latest_version} is available on GitHub (current version: v${res.current_version}).`;
+      }
+      if (linkEl && res.release_url) {
+        linkEl.href = res.release_url;
+      }
+      bannerEl?.classList.remove("hidden");
+      announce(
+        `Update available: FediCaption version ${res.latest_version} is available on GitHub.`
+      );
+    }
+  } catch (_) {
+    // Silently ignore if offline or GitHub is unreachable
+  }
+}
+
 async function initApp() {
   const initialSystemTheme = detectSystemTheme();
   document.documentElement.setAttribute("data-theme", initialSystemTheme);
@@ -2932,6 +2966,7 @@ async function initApp() {
   if (themeSelect) themeSelect.value = initialSystemTheme;
 
   bindEvents();
+  checkForAppUpdate();
 
   try {
     const res = await apiRequest("/api/config");

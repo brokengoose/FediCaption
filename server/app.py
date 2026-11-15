@@ -5,17 +5,23 @@ import base64
 import json
 import mimetypes
 import os
+import re
+import ssl
 import sys
 import threading
+import urllib.error
 import urllib.parse
+import urllib.request
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
+from server import __version__
 from server.ai_captioner import (
     AICaptionerError,
+    _create_ssl_context,
     _strip_data_url,
     check_post_for_bias,
     generate_alt_text,
@@ -36,6 +42,83 @@ from server.mastodon_client import (
 
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+GITHUB_REPO = "brokengoose/FediCaption"
+GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO}"
+
+
+def _parse_version_tuple(version_str: str) -> Tuple[int, ...]:
+    """Parse a semantic version string (e.g., 'v1.2.3' or '1.2.3') into a comparable tuple of ints."""
+    cleaned = (version_str or "").strip().lstrip("vV")
+    parts = re.findall(r"\d+", cleaned)
+    if not parts:
+        return (0,)
+    return tuple(int(p) for p in parts)
+
+
+def check_github_update(current_version: str = __version__) -> Dict[str, Any]:
+    """Check GitHub for a newer version of FediCaption via Releases or main branch __version__."""
+    headers = {
+        "User-Agent": f"FediCaption/{current_version} (+{GITHUB_REPO_URL})",
+        "Accept": "application/vnd.github+json, text/plain;q=0.9, */*;q=0.8",
+    }
+    ssl_ctx = _create_ssl_context()
+    latest_version = current_version
+    release_url = GITHUB_REPO_URL
+    checked = False
+
+    # 1. Check latest GitHub Release first
+    release_api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    try:
+        req = urllib.request.Request(release_api_url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=5, context=ssl_ctx) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                tag = (
+                    data.get("tag_name")
+                    or data.get("name")
+                    or data.get("version")
+                    or ""
+                ).strip()
+                if tag:
+                    latest_version = tag.lstrip("vV")
+                    release_url = data.get("html_url") or GITHUB_REPO_URL
+                    checked = True
+    except Exception:
+        pass
+
+    # 2. Also check server/__init__.py on GitHub main branch
+    raw_init_url = (
+        f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/server/__init__.py"
+    )
+    try:
+        req = urllib.request.Request(raw_init_url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=5, context=ssl_ctx) as resp:
+            raw_py = resp.read().decode("utf-8", errors="replace")
+            match = re.search(
+                r'__version__\s*=\s*["\']([^"\']+)["\']', raw_py
+            )
+            if match:
+                branch_ver = match.group(1).strip().lstrip("vV")
+                if _parse_version_tuple(branch_ver) > _parse_version_tuple(
+                    latest_version
+                ):
+                    latest_version = branch_ver
+                checked = True
+    except Exception:
+        pass
+
+    update_available = _parse_version_tuple(latest_version) > _parse_version_tuple(
+        current_version
+    )
+    return {
+        "ok": True,
+        "checked": checked,
+        "current_version": current_version.lstrip("vV"),
+        "latest_version": latest_version.lstrip("vV"),
+        "update_available": update_available,
+        "release_url": release_url,
+    }
 
 
 def _get_mastodon_client(config: Optional[Dict[str, Any]] = None) -> MastodonClient:
@@ -134,7 +217,18 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
 
         try:
             if path == "/api/health":
-                self._send_json({"ok": True, "service": "FediCaption"})
+                self._send_json(
+                    {
+                        "ok": True,
+                        "service": "FediCaption",
+                        "version": __version__,
+                    }
+                )
+                return
+
+            if path == "/api/version":
+                info = check_github_update()
+                self._send_json(info)
                 return
 
             if path == "/api/config":

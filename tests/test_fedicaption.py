@@ -687,6 +687,36 @@ class FediCaptionTestSuite(unittest.TestCase):
         self.assertIn("workforce", fb_data["suggested_wording"])
         self.assertIn("allowlist", fb_data["suggested_wording"])
 
+    @patch("urllib.request.urlopen")
+    def test_github_version_check(self, mock_urlopen):
+        # 1. Newer release available on GitHub
+        mock_urlopen.side_effect = [
+            _FakeHTTPResponse(
+                {
+                    "tag_name": "v1.2.0",
+                    "html_url": "https://github.com/brokengoose/FediCaption/releases/tag/v1.2.0",
+                }
+            ),
+            _FakeHTTPResponse('"""FediCaption."""\n__version__ = "1.2.0"\n'),
+        ]
+        code, ver_body = self._invoke_handler("GET", "/api/version")
+        self.assertEqual(code, 200)
+        ver_data = json.loads(ver_body)
+        self.assertTrue(ver_data["ok"])
+        self.assertTrue(ver_data["update_available"])
+        self.assertEqual(ver_data["current_version"], "1.0.0")
+        self.assertEqual(ver_data["latest_version"], "1.2.0")
+
+        # 2. Same version on GitHub (up to date)
+        mock_urlopen.side_effect = [
+            _FakeHTTPResponse({"tag_name": "v1.0.0"}),
+            _FakeHTTPResponse('"""FediCaption."""\n__version__ = "1.0.0"\n'),
+        ]
+        code, ver_body2 = self._invoke_handler("GET", "/api/version")
+        self.assertEqual(code, 200)
+        ver_data2 = json.loads(ver_body2)
+        self.assertFalse(ver_data2["update_available"])
+
 
 if __name__ == "__main__":
     unittest.main()
