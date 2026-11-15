@@ -1507,3 +1507,137 @@ a.status-time-link:focus-visible {
   justify-content: center;
   margin-top: 10px;
 }
+
+/* Pre-Post Bias Review Modal */
+.bias-summary-banner {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.bias-summary-banner.bias-clear {
+  border-color: var(--success-color);
+  background: var(--success-bg);
+}
+
+.bias-summary-banner.bias-detected {
+  border-color: var(--warning-color);
+  background: var(--warning-bg);
+}
+
+.bias-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  margin-bottom: 8px;
+}
+
+.bias-status-badge.badge-clear {
+  background: var(--success-color);
+  color: #000;
+}
+
+.bias-status-badge.badge-detected {
+  background: var(--warning-color);
+  color: #000;
+}
+
+.bias-summary-text {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.bias-sources-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bias-source-pill {
+  font-size: 0.76rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.bias-findings-section {
+  margin-bottom: 16px;
+}
+
+.bias-findings-section h3,
+.bias-suggestion-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.98rem;
+}
+
+.bias-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bias-finding-card {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--warning-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.bias-finding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.bias-finding-source {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent-teal);
+}
+
+.bias-finding-type {
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--warning-bg);
+  color: var(--warning-color);
+  border: 1px solid var(--warning-color);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.bias-finding-explanation {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.bias-suggestion-section {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.bias-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}

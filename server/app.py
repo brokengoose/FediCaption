@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from server.ai_captioner import (
     AICaptionerError,
     _strip_data_url,
+    check_post_for_bias,
     generate_alt_text,
     list_ollama_models,
     list_provider_models,
@@ -378,6 +379,40 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                     custom_instructions=body.get("custom_instructions"),
                 )
                 self._send_json({"ok": True, **result})
+                return
+
+            if path == "/api/ai/bias-check":
+                cfg = load_config()
+                ai_cfg = cfg.get("ai", {})
+                if "ai_override" in body and isinstance(body["ai_override"], dict):
+                    from server.config import _deep_merge
+
+                    ai_cfg = _deep_merge(ai_cfg, body["ai_override"])
+
+                attachments = body.get("attachments") or []
+                for att in attachments:
+                    if (
+                        isinstance(att, dict)
+                        and att.get("remote_url")
+                        and not att.get("images_b64")
+                    ):
+                        try:
+                            mime, b64 = fetch_remote_media_as_base64(
+                                att["remote_url"]
+                            )
+                            if mime.startswith("image/"):
+                                att["images_b64"] = [b64]
+                        except Exception:
+                            pass
+
+                bias_result = check_post_for_bias(
+                    ai_config=ai_cfg,
+                    status_text=body.get("status_text", ""),
+                    spoiler_text=body.get("spoiler_text", ""),
+                    attachments=attachments,
+                    referenced_messages=body.get("referenced_messages") or [],
+                )
+                self._send_json({"ok": True, **bias_result})
                 return
 
             if path == "/api/mastodon/oauth/start":

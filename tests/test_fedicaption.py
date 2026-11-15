@@ -60,17 +60,20 @@ class FediCaptionTestSuite(unittest.TestCase):
         cfg = load_config()
         self.assertEqual(cfg["ai"]["provider"], "ollama")
         self.assertTrue(cfg["ai"]["auto_generate"])
+        self.assertEqual(cfg["ai"]["bias_policy"], "warn")
 
         updated = save_config(
             {
                 "ai": {
                     "provider": "gemini",
+                    "bias_policy": "require",
                     "gemini": {"api_key": "test-gemini-key", "model": "gemini-2.5-flash"},
                 },
                 "ui": {"theme": "high-contrast"},
             }
         )
         self.assertEqual(updated["ai"]["provider"], "gemini")
+        self.assertEqual(updated["ai"]["bias_policy"], "require")
         self.assertEqual(updated["ai"]["gemini"]["api_key"], "test-gemini-key")
         self.assertEqual(updated["ui"]["theme"], "high-contrast")
         # Ensure untouched defaults are preserved
@@ -596,6 +599,93 @@ class FediCaptionTestSuite(unittest.TestCase):
         self.assertTrue(ant_data["reachable"])
         ant_names = [m["name"] for m in ant_data["models"]]
         self.assertIn("claude-3-7-sonnet-20250219", ant_names)
+
+    @patch("urllib.request.urlopen")
+    def test_pre_post_bias_check(self, mock_urlopen):
+        # 1. AI provider returns structured JSON bias analysis across post text, attachments, links, and referenced messages
+        ai_json_response = json.dumps(
+            {
+                "has_bias": True,
+                "summary": "Implicit gender and racial bias detected in the main post text and referenced message.",
+                "findings": [
+                    {
+                        "source": "Post Text",
+                        "bias_type": "Implicit Gender Bias",
+                        "explanation": "Uses 'manpower' and 'husbands and wives', which assume male-default labor and binary gender roles.",
+                    },
+                    {
+                        "source": "Referenced Message (@bob)",
+                        "bias_type": "Implicit Racial Bias",
+                        "explanation": "Referenced message uses 'whitelist/blacklist' terminology.",
+                    },
+                ],
+                "main_text_biased": True,
+                "suggested_wording": "We need more workforce for the event, and all spouses and partners are welcome! Check https://example.org/event",
+            }
+        )
+        # First call fetches the link preview for https://example.org/event; second call queries Ollama
+        mock_urlopen.side_effect = [
+            _FakeHTTPResponse(
+                "<html><head><title>Community Event</title></head><body>All are welcome.</body></html>"
+            ),
+            _FakeHTTPResponse({"message": {"content": ai_json_response}}),
+        ]
+
+        code, bias_body = self._invoke_handler(
+            "POST",
+            "/api/ai/bias-check",
+            {
+                "status_text": "We need more manpower for the event, and all husbands and wives are welcome! Check https://example.org/event",
+                "spoiler_text": "",
+                "attachments": [
+                    {
+                        "label": "Attachment 1 (image: flyer.png)",
+                        "alt_text": "AI generated description: Event flyer in a park.",
+                        "images_b64": ["data:image/jpeg;base64,dGVzdA=="],
+                    }
+                ],
+                "referenced_messages": [
+                    {
+                        "author": "@bob",
+                        "content": "Let's update the whitelist and blacklist first.",
+                        "spoiler_text": "",
+                        "media_descriptions": [],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(code, 200)
+        bias_data = json.loads(bias_body)
+        self.assertTrue(bias_data["ok"])
+        self.assertTrue(bias_data["has_bias"])
+        self.assertTrue(bias_data["main_text_biased"])
+        self.assertEqual(len(bias_data["findings"]), 2)
+        self.assertEqual(bias_data["findings"][0]["source"], "Post Text")
+        self.assertEqual(
+            bias_data["findings"][1]["source"], "Referenced Message (@bob)"
+        )
+        self.assertIn("spouses and partners", bias_data["suggested_wording"])
+        self.assertIn("https://example.org/event", bias_data["links_checked"])
+
+        # 2. Fallback heuristic check when AI provider is offline
+        mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
+        code, fb_body = self._invoke_handler(
+            "POST",
+            "/api/ai/bias-check",
+            {
+                "status_text": "The chairman asked for more manpower on the whitelist.",
+                "spoiler_text": "",
+                "attachments": [],
+                "referenced_messages": [],
+            },
+        )
+        self.assertEqual(code, 200)
+        fb_data = json.loads(fb_body)
+        self.assertTrue(fb_data["has_bias"])
+        self.assertTrue(fb_data["main_text_biased"])
+        self.assertIn("chairperson", fb_data["suggested_wording"])
+        self.assertIn("workforce", fb_data["suggested_wording"])
+        self.assertIn("allowlist", fb_data["suggested_wording"])
 
 
 if __name__ == "__main__":

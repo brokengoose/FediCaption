@@ -24,6 +24,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "detail_level": "descriptive",  # "concise" | "descriptive" | "detailed"
         "include_post_context": True,
         "require_alt_text": "warn",  # "warn" | "require" | "off"
+        "bias_policy": "warn",  # "warn" | "require" | "off"
         "language": "English",
         "custom_instructions": "",
         "ollama": {
@@ -45,7 +46,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
     },
     "ui": {
-        "theme": "dark",  # "dark" | "light" | "high-contrast"
+        "theme": "",  # "" (auto-detect system mode) | "dark" | "light" | "high-contrast"
+        "theme_explicit": False,
         "default_visibility": "public",  # "public" | "unlisted" | "private" | "direct"
         "video_keyframes_count": 4,
     },

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -404,6 +404,68 @@
     </div>
   </div>
 
+  <!-- Pre-Post Bias Review Modal -->
+  <div
+    id="bias-review-modal"
+    class="modal-backdrop hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="bias-modal-title"
+  >
+    <div class="modal-card modal-thread">
+      <div class="modal-header">
+        <h2 id="bias-modal-title">Pre-Post Racial &amp; Gender Bias Review</h2>
+        <button type="button" id="close-bias-modal-btn" class="btn btn-sm btn-ghost" aria-label="Close bias review">
+          &times; Close
+        </button>
+      </div>
+      <div class="modal-body">
+        <div id="bias-review-status-banner" class="bias-summary-banner" role="status">
+          <div id="bias-review-badge" class="bias-status-badge"></div>
+          <p id="bias-review-summary" class="bias-summary-text"></p>
+          <div id="bias-checked-sources" class="bias-sources-row" aria-label="Checked items"></div>
+        </div>
+
+        <div id="bias-findings-section" class="bias-findings-section hidden">
+          <h3>Where Bias Was Found</h3>
+          <div id="bias-findings-list" class="bias-findings-list"></div>
+        </div>
+
+        <div id="bias-suggestion-section" class="bias-suggestion-section hidden">
+          <h3>Suggested Less-Biased Wording for Main Post Text</h3>
+          <p class="section-help">
+            You can replace your main post text with this suggested wording or edit it before publishing:
+          </p>
+          <textarea
+            id="bias-suggested-text"
+            class="form-control"
+            rows="4"
+            aria-label="Suggested alternate wording for post"
+          ></textarea>
+          <div class="bias-suggestion-actions">
+            <button type="button" id="bias-apply-suggestion-btn" class="btn btn-sm btn-secondary">
+              Use Suggested Wording in Composer
+            </button>
+            <button type="button" id="bias-apply-and-publish-btn" class="btn btn-sm btn-accent">
+              Use Suggested Wording &amp; Publish Now
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span id="bias-provider-info" class="config-path-display"></span>
+        <div class="modal-footer-actions">
+          <button type="button" id="bias-edit-post-btn" class="btn btn-secondary">
+            Return &amp; Edit Post
+          </button>
+          <button type="button" id="bias-confirm-publish-btn" class="btn btn-primary">
+            Publish Post
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings & Authentication Modal -->
   <div
     id="settings-modal"
@@ -447,6 +509,15 @@
           data-tab="tab-accessibility"
         >
           3. Accessibility Rules
+        </button>
+        <button
+          type="button"
+          class="modal-tab"
+          role="tab"
+          aria-selected="false"
+          data-tab="tab-bias"
+        >
+          4. Bias Rules
         </button>
       </div>
 
@@ -730,6 +801,25 @@
                 rows="2"
                 placeholder="e.g., Always mention camera lens style or color palette; my dog's name is Barnaby..."
               ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: Bias Rules -->
+        <div id="tab-bias" class="tab-panel hidden" role="tabpanel">
+          <div class="settings-section">
+            <h3>Pre-Post Racial &amp; Gender Bias Rules</h3>
+            <p class="section-help">
+              Configure how FediCaption checks your post contents, media attachments, links, and referenced messages for implicit or explicit racial and gender bias before publishing.
+            </p>
+
+            <div class="form-group">
+              <label for="settings-bias-policy">Pre-Post Bias Policy</label>
+              <select id="settings-bias-policy" class="form-control">
+                <option value="warn">Warn me about bias before posting (Recommended)</option>
+                <option value="require">Require posts with bias to be corrected before posting</option>
+                <option value="off">Do not warn at all</option>
+              </select>
             </div>
           </div>
         </div>

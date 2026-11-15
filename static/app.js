@@ -556,7 +556,182 @@ function showComposerFeedback(message, type = "info", actionHtml = "") {
   el.classList.remove("hidden");
 }
 
-async function publishPost(bypassWarn = false) {
+function collectReferencedMessagesForBiasCheck(statusText) {
+  const refs = [];
+  const seenIds = new Set();
+
+  const addStatusRef = (st, labelPrefix = "") => {
+    if (!st || !st.id || seenIds.has(st.id)) return;
+    seenIds.add(st.id);
+    const acct = st.account?.acct || st.account?.username || "unknown";
+    const displayName = st.account?.display_name || acct;
+    const mediaDescs = Array.isArray(st.media_attachments)
+      ? st.media_attachments
+          .map((m) => (m.description || "").trim())
+          .filter(Boolean)
+      : [];
+    refs.push({
+      id: st.id,
+      author: `${labelPrefix}@${acct} (${displayName})`.trim(),
+      spoiler_text: st.spoiler_text || "",
+      content: stripHtmlTags(st.content || ""),
+      media_descriptions: mediaDescs,
+    });
+  };
+
+  if (state.replyToStatus) {
+    addStatusRef(state.replyToStatus, "Reply to ");
+  }
+
+  // Also check if the post text links to or references any status loaded in timeline
+  if (statusText && Array.isArray(state.statuses)) {
+    for (const s of state.statuses) {
+      const target = s.reblog || s;
+      if (
+        target?.id &&
+        ((target.url && statusText.includes(target.url)) ||
+          (target.uri && statusText.includes(target.uri)) ||
+          statusText.includes(`/${target.id}`))
+      ) {
+        addStatusRef(target, "Referenced post by ");
+      }
+    }
+  }
+
+  return refs;
+}
+
+function openBiasReviewModal(biasResult, biasPolicy = "warn") {
+  const modal = document.getElementById("bias-review-modal");
+  if (!modal) return;
+
+  const hasBias = Boolean(biasResult.has_bias);
+  const requireCorrection = hasBias && biasPolicy === "require";
+  const bannerEl = document.getElementById("bias-review-status-banner");
+  const badgeEl = document.getElementById("bias-review-badge");
+  const summaryEl = document.getElementById("bias-review-summary");
+  const sourcesEl = document.getElementById("bias-checked-sources");
+  const findingsSec = document.getElementById("bias-findings-section");
+  const findingsList = document.getElementById("bias-findings-list");
+  const suggestionSec = document.getElementById("bias-suggestion-section");
+  const suggestedTextEl = document.getElementById("bias-suggested-text");
+  const providerInfoEl = document.getElementById("bias-provider-info");
+  const confirmBtn = document.getElementById("bias-confirm-publish-btn");
+  const editBtn = document.getElementById("bias-edit-post-btn");
+
+  const isEditing = Boolean(state.editingStatus?.id);
+
+  if (bannerEl) {
+    bannerEl.className = `bias-summary-banner ${hasBias ? "bias-detected" : "bias-clear"}`;
+  }
+  if (badgeEl) {
+    badgeEl.className = `bias-status-badge ${hasBias ? "badge-detected" : "badge-clear"}`;
+    badgeEl.textContent = requireCorrection
+      ? "Bias Policy: Correction Required"
+      : hasBias
+      ? "Potential Bias Detected"
+      : "No Racial or Gender Bias Detected";
+  }
+  if (summaryEl) {
+    const baseSummary =
+      biasResult.summary ||
+      (hasBias
+        ? "Potential racial or gender bias was identified in your post materials."
+        : "Checked post contents, attachments, links, and referenced messages. No racial or gender bias was found.");
+    summaryEl.textContent = requireCorrection
+      ? `${baseSummary} Your Bias Rules require correcting detected bias before posting.`
+      : baseSummary;
+  }
+
+  const checkedSources = Array.isArray(biasResult.checked_sources)
+    ? biasResult.checked_sources
+    : ["Post Text"];
+  if (sourcesEl) {
+    sourcesEl.innerHTML = checkedSources
+      .map(
+        (src) =>
+          `<span class="bias-source-pill">Checked: ${escapeHtml(src)}</span>`
+      )
+      .join("");
+  }
+
+  const findings = Array.isArray(biasResult.findings)
+    ? biasResult.findings
+    : [];
+  if (findingsSec && findingsList) {
+    if (hasBias && findings.length > 0) {
+      findingsSec.classList.remove("hidden");
+      findingsList.innerHTML = findings
+        .map(
+          (f) => `
+            <div class="bias-finding-card">
+              <div class="bias-finding-header">
+                <span class="bias-finding-source">Location: ${escapeHtml(f.source || "Post Text")}</span>
+                <span class="bias-finding-type">${escapeHtml(f.bias_type || "Bias")}</span>
+              </div>
+              <p class="bias-finding-explanation">${escapeHtml(f.explanation || "")}</p>
+            </div>
+          `
+        )
+        .join("");
+    } else {
+      findingsSec.classList.add("hidden");
+      findingsList.innerHTML = "";
+    }
+  }
+
+  const suggestedWording = (biasResult.suggested_wording || "").trim();
+  if (suggestionSec && suggestedTextEl) {
+    if (biasResult.main_text_biased && suggestedWording) {
+      suggestionSec.classList.remove("hidden");
+      suggestedTextEl.value = suggestedWording;
+    } else {
+      suggestionSec.classList.add("hidden");
+      suggestedTextEl.value = "";
+    }
+  }
+
+  if (providerInfoEl) {
+    providerInfoEl.textContent = biasResult.provider
+      ? `Checked via ${biasResult.provider.toUpperCase()} (${biasResult.model || "default"})`
+      : "";
+  }
+
+  if (confirmBtn) {
+    if (requireCorrection) {
+      confirmBtn.classList.add("hidden");
+    } else {
+      confirmBtn.classList.remove("hidden");
+      confirmBtn.textContent = hasBias
+        ? isEditing
+          ? "Save Changes Anyway"
+          : "Publish Anyway"
+        : isEditing
+        ? "Confirm & Save Changes"
+        : "Confirm & Publish Post";
+    }
+  }
+
+  modal.classList.remove("hidden");
+  if (requireCorrection) {
+    editBtn?.focus();
+  } else {
+    confirmBtn?.focus();
+  }
+  announce(
+    requireCorrection
+      ? `Bias detected and must be corrected before posting: ${biasResult.summary || ""}`
+      : hasBias
+      ? `Bias check found potential bias: ${biasResult.summary || ""}`
+      : `Bias check passed: ${biasResult.summary || "No bias detected."}`
+  );
+}
+
+function closeBiasReviewModal() {
+  document.getElementById("bias-review-modal")?.classList.add("hidden");
+}
+
+async function publishPost(bypassWarn = false, skipBiasCheck = false) {
   if (state.isPublishing) return;
 
   const statusText = document.getElementById("composer-textarea")?.value || "";
@@ -633,7 +808,7 @@ async function publishPost(bypassWarn = false) {
         });
       document
         .getElementById("guard-post-anyway-btn")
-        ?.addEventListener("click", () => publishPost(true));
+        ?.addEventListener("click", () => publishPost(true, false));
       announce("Warning: Attached media is missing alt-text.", true);
       return;
     }
@@ -654,8 +829,71 @@ async function publishPost(bypassWarn = false) {
   }
 
   const isEditing = Boolean(state.editingStatus?.id);
-  state.isPublishing = true;
   const publishBtn = document.getElementById("publish-post-btn");
+  const biasPolicy = state.config?.ai?.bias_policy || "warn";
+
+  // Pre-Post Racial & Gender Bias Check across post text, attachments, links, and referenced messages
+  if (!skipBiasCheck && biasPolicy !== "off") {
+    state.isPublishing = true;
+    if (publishBtn) {
+      publishBtn.disabled = true;
+      publishBtn.textContent = "Checking for bias...";
+    }
+    showComposerFeedback(
+      "Checking post contents, attachments, links, and referenced messages for racial or gender bias...",
+      "info"
+    );
+    announce("Checking post for racial or gender bias before publishing...");
+
+    try {
+      const provider =
+        document.getElementById("quick-provider-select")?.value ||
+        state.config?.ai?.provider ||
+        "ollama";
+      const biasAttachments = state.attachments.map((att, idx) => ({
+        label: `Attachment ${idx + 1} (${att.mediaType}: ${att.filename || "media"})`,
+        alt_text: (att.altText || "").trim(),
+        images_b64: (att.aiFramesB64 || []).slice(0, 2),
+        remote_url: att.remoteUrl || "",
+      }));
+      const referencedMessages = collectReferencedMessagesForBiasCheck(statusText);
+
+      const biasRes = await apiRequest("/api/ai/bias-check", {
+        method: "POST",
+        body: {
+          status_text: statusText,
+          spoiler_text: spoilerText,
+          attachments: biasAttachments,
+          referenced_messages: referencedMessages,
+          ai_override: { provider },
+        },
+      });
+
+      if (biasRes.has_bias) {
+        showComposerFeedback("");
+        state.isPublishing = false;
+        if (publishBtn) {
+          publishBtn.disabled = false;
+          publishBtn.textContent = isEditing ? "Save Changes" : "Publish Post";
+        }
+        openBiasReviewModal(biasRes, biasPolicy);
+        return;
+      }
+    } catch (err) {
+      showComposerFeedback(
+        `Bias check error: ${err.message}`,
+        "warning"
+      );
+      state.isPublishing = false;
+      if (publishBtn) {
+        publishBtn.disabled = false;
+        publishBtn.textContent = isEditing ? "Save Changes" : "Publish Post";
+      }
+      return;
+    }
+  }
+
+  state.isPublishing = true;
   if (publishBtn) {
     publishBtn.disabled = true;
     publishBtn.textContent = isEditing ? "Saving..." : "Publishing...";
@@ -1718,12 +1956,43 @@ async function captionTimelineMediaWithAI(mediaUrl, mediaType, targetBoxId, btnE
    Settings, AI Provider Config & Mastodon OAuth
    ========================================================================== */
 
+function detectSystemTheme() {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function"
+  ) {
+    if (window.matchMedia("(prefers-contrast: more)").matches) {
+      return "high-contrast";
+    }
+    if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+  }
+  return "dark";
+}
+
+function resolveEffectiveTheme(cfg) {
+  const ui = cfg?.ui || {};
+  const explicitTheme = ui.theme_explicit ? ui.theme : "";
+  if (
+    explicitTheme === "dark" ||
+    explicitTheme === "light" ||
+    explicitTheme === "high-contrast"
+  ) {
+    return explicitTheme;
+  }
+  return detectSystemTheme();
+}
+
 function applyConfigToUI(cfg) {
   state.config = cfg;
   if (!cfg) return;
 
-  // Theme
-  const theme = cfg.ui?.theme || "dark";
+  // Theme (use explicit user choice if set, otherwise detect system mode)
+  const theme = resolveEffectiveTheme(cfg);
   document.documentElement.setAttribute("data-theme", theme);
   const themeSelect = document.getElementById("theme-select");
   if (themeSelect) themeSelect.value = theme;
@@ -1830,6 +2099,10 @@ function applyConfigToUI(cfg) {
 
   document.getElementById("settings-require-alt").value =
     ai.require_alt_text || "warn";
+  const biasPolicySelect = document.getElementById("settings-bias-policy");
+  if (biasPolicySelect) {
+    biasPolicySelect.value = ai.bias_policy || "warn";
+  }
   document.getElementById("settings-caption-language").value =
     ai.language || "English";
   document.getElementById("settings-keyframes-count").value = String(
@@ -2059,6 +2332,8 @@ async function saveSettingsFromModal() {
         document.getElementById("quick-detail-select")?.value || "descriptive",
       require_alt_text:
         document.getElementById("settings-require-alt")?.value || "warn",
+      bias_policy:
+        document.getElementById("settings-bias-policy")?.value || "warn",
       language:
         document.getElementById("settings-caption-language")?.value.trim() ||
         "English",
@@ -2098,7 +2373,6 @@ async function saveSettingsFromModal() {
       },
     },
     ui: {
-      theme: document.getElementById("theme-select")?.value || "dark",
       video_keyframes_count: Number(
         document.getElementById("settings-keyframes-count")?.value || 4
       ),
@@ -2312,10 +2586,27 @@ function bindEvents() {
       document.documentElement.setAttribute("data-theme", theme);
       const res = await apiRequest("/api/config", {
         method: "POST",
-        body: { ui: { theme } },
+        body: { ui: { theme, theme_explicit: true } },
       });
       applyConfigToUI(res.config);
     });
+
+  if (typeof window.matchMedia === "function") {
+    const handleSystemThemeChange = () => {
+      if (!state.config?.ui?.theme_explicit) {
+        const sysTheme = detectSystemTheme();
+        document.documentElement.setAttribute("data-theme", sysTheme);
+        const themeSelect = document.getElementById("theme-select");
+        if (themeSelect) themeSelect.value = sysTheme;
+      }
+    };
+    window
+      .matchMedia("(prefers-color-scheme: dark)")
+      .addEventListener?.("change", handleSystemThemeChange);
+    window
+      .matchMedia("(prefers-contrast: more)")
+      .addEventListener?.("change", handleSystemThemeChange);
+  }
 
   // Quick sidebar AI controls
   document
@@ -2558,10 +2849,55 @@ function bindEvents() {
     document.getElementById("thread-modal")?.classList.add("hidden");
   });
 
+  // Pre-Post Bias Review Modal controls
+  const returnToEditFromBiasModal = () => {
+    closeBiasReviewModal();
+    document.getElementById("composer-textarea")?.focus();
+  };
+  document
+    .getElementById("close-bias-modal-btn")
+    ?.addEventListener("click", returnToEditFromBiasModal);
+  document
+    .getElementById("bias-edit-post-btn")
+    ?.addEventListener("click", returnToEditFromBiasModal);
+  document
+    .getElementById("bias-apply-suggestion-btn")
+    ?.addEventListener("click", () => {
+      const suggested = document.getElementById("bias-suggested-text")?.value;
+      const textarea = document.getElementById("composer-textarea");
+      if (textarea && typeof suggested === "string" && suggested.trim()) {
+        textarea.value = suggested;
+        updateCharCounter();
+        announce("Applied suggested less-biased wording to your post.");
+      }
+      closeBiasReviewModal();
+      textarea?.focus();
+    });
+  document
+    .getElementById("bias-apply-and-publish-btn")
+    ?.addEventListener("click", () => {
+      const suggested = document.getElementById("bias-suggested-text")?.value;
+      const textarea = document.getElementById("composer-textarea");
+      if (textarea && typeof suggested === "string" && suggested.trim()) {
+        textarea.value = suggested;
+        updateCharCounter();
+      }
+      closeBiasReviewModal();
+      const requireMode = state.config?.ai?.bias_policy === "require";
+      publishPost(true, !requireMode);
+    });
+  document
+    .getElementById("bias-confirm-publish-btn")
+    ?.addEventListener("click", () => {
+      closeBiasReviewModal();
+      publishPost(true, true);
+    });
+
   // Global keyboard shortcuts
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeSettingsModal();
+      closeBiasReviewModal();
       document.getElementById("thread-modal")?.classList.add("hidden");
     }
     if (e.altKey && e.key.toLowerCase() === "n") {
@@ -2590,6 +2926,11 @@ function bindEvents() {
 }
 
 async function initApp() {
+  const initialSystemTheme = detectSystemTheme();
+  document.documentElement.setAttribute("data-theme", initialSystemTheme);
+  const themeSelect = document.getElementById("theme-select");
+  if (themeSelect) themeSelect.value = initialSystemTheme;
+
   bindEvents();
 
   try {
