@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FediCaption — Accessible Mastodon Client with AI Alt-Text</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -22,19 +26,14 @@
   <!-- Top Application Header -->
   <header class="app-header" role="banner">
     <div class="brand-group">
-      <div class="brand-logo" aria-hidden="true">
-        <svg viewBox="0 0 36 36" width="32" height="32" fill="none">
-          <rect width="36" height="36" rx="10" fill="url(#logoGrad)" />
-          <path d="M9 13C9 10.7909 10.7909 9 13 9H23C25.2091 9 27 10.7909 27 13V20C27 22.2091 25.2091 24 23 24H16L11 27.5V24C9.89543 24 9 23.1046 9 22V13Z" stroke="white" stroke-width="2.2" stroke-linejoin="round"/>
-          <circle cx="14.5" cy="16.5" r="1.8" fill="white"/>
-          <path d="M13 21L17 17L20 19.5L23 15.5L25 18.5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          <defs>
-            <linearGradient id="logoGrad" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#6364FF"/>
-              <stop offset="1" stop-color="#00C2A8"/>
-            </linearGradient>
-          </defs>
-        </svg>
+      <div class="brand-logo">
+        <img
+          src="/logo.png"
+          alt="FediCaption logo: a friendly grey elephant wearing dark sunglasses"
+          class="brand-logo-img"
+          width="40"
+          height="40"
+        />
       </div>
       <div>
         <h1 class="app-title">

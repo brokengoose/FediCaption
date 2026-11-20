@@ -1,5 +1,9 @@
 # FediCaption — Accessible Mastodon Client with AI Image & Video Alt-Text
 
+<p align="left">
+  <img src="static/logo.png" alt="FediCaption logo: a friendly grey elephant wearing dark sunglasses on a blue background" width="96" height="96" style="border-radius: 20px;" />
+</p>
+
 **FediCaption** is a cross-platform Mastodon / Fediverse client for **macOS** and **Linux** designed around accessibility for blind and low-vision users.
 
 Whenever you attach an **image** or **video** to a post, FediCaption automatically scans the media using your choice of **local AI** (Ollama, LM Studio, llama.cpp) or **cloud AI** (Google Gemini, OpenAI, Anthropic Claude) and populates the Mastodon alt-text field with a clear, screen-reader-friendly description following W3C WAI and Perkins School for the Blind guidelines.
