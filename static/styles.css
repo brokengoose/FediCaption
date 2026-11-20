@@ -1695,3 +1695,70 @@ a.status-time-link:focus-visible {
   align-items: center;
   gap: 8px;
 }
+
+/* Embedded Quoted Post (RE: <URL>) */
+.quoted-post-embed {
+  margin: 12px 0;
+  padding: 12px 15px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.quoted-post-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-teal);
+  margin-bottom: 8px;
+}
+
+.quoted-post-header {
+  margin-bottom: 8px;
+}
+
+.quoted-avatar {
+  width: 34px;
+  height: 34px;
+}
+
+.quoted-post-content {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.quoted-post-content:last-child {
+  margin-bottom: 0;
+}
+
+.quoted-post-cw {
+  font-size: 0.82rem;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-color);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  margin-bottom: 8px;
+}
+
+.quoted-post-loading-row,
+.quoted-post-fallback-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.quoted-post-loading-row a,
+.quoted-post-fallback-body a {
+  color: var(--accent-teal);
+  text-decoration: underline;
+}

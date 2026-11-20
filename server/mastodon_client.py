@@ -2,6 +2,7 @@
 
 import base64
 import json
+import re
 import ssl
 import time
 import urllib.error
@@ -429,6 +430,73 @@ class MastodonClient:
             "ancestors": context.get("ancestors", []),
             "descendants": context.get("descendants", []),
         }
+
+    def resolve_quoted_status(self, quote_url: str) -> Dict[str, Any]:
+        """Resolve a quoted Mastodon post URL into a full status object."""
+        quote_url = (quote_url or "").strip()
+        parsed = urllib.parse.urlparse(quote_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise MastodonAPIError("Invalid quoted status URL.", 400)
+
+        origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        id_match = re.search(
+            r"/(?:@[^/]+|statuses|objects|notice)/([A-Za-z0-9_]+)(?:[/?#]|$)",
+            parsed.path,
+        )
+        status_id = id_match.group(1) if id_match else ""
+        if not status_id:
+            segments = [s for s in parsed.path.split("/") if s]
+            if segments and re.match(r"^[0-9]+$", segments[-1]):
+                status_id = segments[-1]
+
+        # 1. If the quoted URL is on the same instance and has a status ID, fetch directly
+        if status_id and origin.lower() == self.instance_url.lower():
+            try:
+                status, _ = self._request("GET", f"/api/v1/statuses/{status_id}")
+                if isinstance(status, dict) and status.get("id"):
+                    return status
+            except MastodonAPIError:
+                pass
+
+        # 2. If authenticated, try resolving via the user's instance /api/v2/search
+        if self.access_token:
+            try:
+                search_data, _ = self._request(
+                    "GET",
+                    "/api/v2/search",
+                    params={
+                        "q": quote_url,
+                        "resolve": "true",
+                        "type": "statuses",
+                        "limit": 1,
+                    },
+                    require_auth=True,
+                )
+                statuses = (
+                    search_data.get("statuses", [])
+                    if isinstance(search_data, dict)
+                    else []
+                )
+                if statuses and isinstance(statuses[0], dict):
+                    return statuses[0]
+            except MastodonAPIError:
+                pass
+
+        # 3. Fallback: Query the remote Mastodon instance's public status API directly
+        if status_id:
+            try:
+                remote_client = MastodonClient(instance_url=origin)
+                status, _ = remote_client._request(
+                    "GET", f"/api/v1/statuses/{status_id}"
+                )
+                if isinstance(status, dict) and status.get("id"):
+                    return status
+            except MastodonAPIError:
+                pass
+
+        raise MastodonAPIError(
+            f"Could not resolve quoted Mastodon post from {quote_url}", 404
+        )
 
     def upload_media(
         self,

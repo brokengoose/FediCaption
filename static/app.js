@@ -13,6 +13,7 @@ const state = {
   attachments: [], // Array of { id, file, mediaType, mimeType, previewUrl, fileB64, aiFramesB64, altText, status, providerUsed, errorMsg, detailLevel, existingMediaId, remoteUrl }
   replyToStatus: null,
   editingStatus: null,
+  quotedStatusesCache: {},
   cwEnabled: false,
   isPublishing: false,
 };
@@ -540,9 +541,12 @@ function renderAttachments() {
 }
 
 /* ==========================================================================
-   Post Publishing & Accessibility Guard
+   Post Publishing, Accessibility Guard & Pre-Post Bias Review
    ========================================================================== */
 
+/**
+ * Display or hide an inline status/warning/error feedback banner inside the composer.
+ */
 function showComposerFeedback(message, type = "info", actionHtml = "") {
   const el = document.getElementById("composer-feedback");
   if (!el) return;
@@ -556,6 +560,32 @@ function showComposerFeedback(message, type = "info", actionHtml = "") {
   el.classList.remove("hidden");
 }
 
+/**
+ * Clear composer text, content warning, reply/edit context, and media attachments.
+ */
+function resetComposerForm() {
+  const textarea = document.getElementById("composer-textarea");
+  const cwInput = document.getElementById("cw-input");
+  if (textarea) textarea.value = "";
+  if (cwInput) cwInput.value = "";
+  clearReplyContext();
+  clearEditContext();
+  state.attachments.forEach((a) => {
+    if (a.previewUrl && !a.existingMediaId) {
+      try {
+        URL.revokeObjectURL(a.previewUrl);
+      } catch (_) {}
+    }
+  });
+  state.attachments = [];
+  renderAttachments();
+  updateCharCounter();
+}
+
+/**
+ * Collect any reply parent status or timeline statuses referenced/linked in the draft
+ * so the pre-post racial and gender bias check can inspect referenced messages.
+ */
 function collectReferencedMessagesForBiasCheck(statusText) {
   const refs = [];
   const seenIds = new Set();
@@ -957,15 +987,7 @@ async function publishPost(bypassWarn = false, skipBiasCheck = false) {
         renderTimeline();
       }
 
-      document.getElementById("composer-textarea").value = "";
-      document.getElementById("cw-input").value = "";
-      updateCharCounter();
-      clearEditContext();
-      state.attachments.forEach((a) => {
-        if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
-      });
-      state.attachments = [];
-      renderAttachments();
+      resetComposerForm();
 
       showComposerFeedback("Post updated successfully!", "success");
       announce("Your post has been updated on Mastodon!");
@@ -983,16 +1005,7 @@ async function publishPost(bypassWarn = false, skipBiasCheck = false) {
         },
       });
 
-      // Reset composer
-      document.getElementById("composer-textarea").value = "";
-      document.getElementById("cw-input").value = "";
-      updateCharCounter();
-      clearReplyContext();
-      state.attachments.forEach((a) => {
-        if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
-      });
-      state.attachments = [];
-      renderAttachments();
+      resetComposerForm();
 
       showComposerFeedback("Post published with accessible alt-text!", "success");
       announce("Post published to Mastodon successfully!");
@@ -1401,6 +1414,317 @@ async function toggleUserSubscription(action = "follow") {
   }
 }
 
+/* ==========================================================================
+   Quoted Post (RE: <URL>) Detection, Embedding & Status Card Rendering
+   ========================================================================== */
+
+/**
+ * Detect whether a Mastodon post begins with "RE: <URL>" (quoting an original post).
+ * Returns { quoteUrl, cleanedHtml } with the leading RE: URL stripped from the reply text.
+ */
+function extractLeadingQuoteFromHtml(rawHtml) {
+  if (!rawHtml || typeof rawHtml !== "string") {
+    return { quoteUrl: "", cleanedHtml: rawHtml || "" };
+  }
+
+  // Case 1: Standalone opening <p>RE: <a href="...">...</a></p> or <p>RE: https://...</p>
+  const standaloneParaRe =
+    /^\s*<p[^>]*>\s*RE:\s*(?:<a\b[^>]*\bhref=["'](https?:\/\/[^"']+)["'][^>]*>[\s\S]*?<\/a>|(https?:\/\/[^\s<>"')]+))\s*<\/p>\s*/i;
+  const m1 = rawHtml.match(standaloneParaRe);
+  if (m1) {
+    const quoteUrl = (m1[1] || m1[2] || "").replace(/[.,;:!?)]+$/, "");
+    const cleanedHtml = rawHtml.slice(m1[0].length).trim();
+    return { quoteUrl, cleanedHtml };
+  }
+
+  // Case 2: Opening <p>RE: <a href="...">...</a><br>Reply text...</p>
+  const inlineParaRe =
+    /^\s*(<p[^>]*>)\s*RE:\s*(?:<a\b[^>]*\bhref=["'](https?:\/\/[^"']+)["'][^>]*>[\s\S]*?<\/a>|(https?:\/\/[^\s<>"')]+))\s*(?:<br\s*\/?>\s*|\s+)/i;
+  const m2 = rawHtml.match(inlineParaRe);
+  if (m2) {
+    const quoteUrl = (m2[2] || m2[3] || "").replace(/[.,;:!?)]+$/, "");
+    const cleanedHtml = (m2[1] + rawHtml.slice(m2[0].length))
+      .replace(/^\s*<p[^>]*>\s*<\/p>\s*/i, "")
+      .trim();
+    return { quoteUrl, cleanedHtml };
+  }
+
+  // Case 3: Plain text or HTML without leading <p> starting with RE: <url>
+  const plainStartRe =
+    /^\s*RE:\s*(?:<a\b[^>]*\bhref=["'](https?:\/\/[^"']+)["'][^>]*>[\s\S]*?<\/a>|(https?:\/\/[^\s<>"')]+))\s*(?:<br\s*\/?>\s*|\s+)?/i;
+  const m3 = rawHtml.match(plainStartRe);
+  if (m3) {
+    const quoteUrl = (m3[1] || m3[2] || "").replace(/[.,;:!?)]+$/, "");
+    const cleanedHtml = rawHtml.slice(m3[0].length).trim();
+    return { quoteUrl, cleanedHtml };
+  }
+
+  return { quoteUrl: "", cleanedHtml: rawHtml };
+}
+
+/**
+ * Render the media attachment grid and accessible alt-text controls for a timeline or quoted status.
+ */
+function renderStatusMediaGridHtml(mediaAttachments) {
+  const list = Array.isArray(mediaAttachments) ? mediaAttachments : [];
+  if (list.length === 0) return "";
+
+  return `<div class="status-media-grid">
+    ${list
+      .map((m) => {
+        const alt = (m.description || "").trim();
+        const mediaUrl = m.url || m.preview_url || "";
+        const isVideo = m.type === "video" || m.type === "gifv";
+        const visual = isVideo
+          ? `<video src="${escapeHtml(mediaUrl)}" controls ${m.type === "gifv" ? "loop muted" : ""} preload="metadata" aria-label="${escapeHtml(alt || "Uncaptioned video attachment")}"></video>`
+          : `<img src="${escapeHtml(m.preview_url || mediaUrl)}" alt="${escapeHtml(alt || "Uncaptioned image attachment")}" loading="lazy" />`;
+
+        return `
+          <div class="timeline-media-item" data-media-id="${escapeHtml(m.id)}">
+            <div class="timeline-media-visual">${visual}</div>
+            <div class="timeline-alt-box">
+              <div class="timeline-alt-header">
+                <span class="alt-tag ${alt ? "has-alt" : "no-alt"}">
+                  ${alt ? "ALT TEXT PROVIDED" : "NO ALT TEXT"}
+                </span>
+                <div style="display:flex;gap:6px;">
+                  ${
+                    alt
+                      ? `<button type="button" class="btn btn-sm btn-ghost" data-action="speak-timeline-alt" data-alt="${escapeHtml(alt)}">&#128266; Read Aloud</button>`
+                      : ""
+                  }
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-accent"
+                    data-action="caption-timeline-media"
+                    data-media-url="${escapeHtml(m.preview_url || mediaUrl)}"
+                    data-media-type="${isVideo ? "video" : "image"}"
+                    data-target-box="tl-alt-text-${escapeHtml(m.id)}"
+                  >
+                    &#10024; ${alt ? "Re-Describe with AI" : "Describe with AI"}
+                  </button>
+                </div>
+              </div>
+              <div class="timeline-alt-text" id="tl-alt-text-${escapeHtml(m.id)}">
+                ${
+                  alt
+                    ? escapeHtml(alt)
+                    : "<em>No author alt-text provided. Click &ldquo;Describe with AI&rdquo; to generate a screen-reader description.</em>"
+                }
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join("")}
+  </div>`;
+}
+
+/**
+ * Check if a quoted post URL is already in state.quotedStatusesCache or loaded in state.statuses.
+ */
+function findCachedOrLocalQuotedStatus(quoteUrl) {
+  if (!quoteUrl) return null;
+  if (state.quotedStatusesCache[quoteUrl]) {
+    return state.quotedStatusesCache[quoteUrl];
+  }
+  const normalizedTarget = quoteUrl.replace(/\/+$/, "");
+  for (const s of state.statuses || []) {
+    const candidate = s.reblog || s;
+    if (!candidate) continue;
+    const cUrl = (candidate.url || "").replace(/\/+$/, "");
+    const cUri = (candidate.uri || "").replace(/\/+$/, "");
+    if (
+      (cUrl && cUrl === normalizedTarget) ||
+      (cUri && cUri === normalizedTarget)
+    ) {
+      state.quotedStatusesCache[quoteUrl] = candidate;
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function renderQuotedStatusCardContentHtml(qStatus, quoteUrl) {
+  const qAccount = qStatus.account || {};
+  const qDisplayName =
+    qAccount.display_name || qAccount.username || "Original Author";
+  const qAcct = qAccount.acct ? `@${qAccount.acct}` : "";
+  const qCreatedAt = formatRelativeTime(qStatus.created_at);
+  const qPostUrl = qStatus.url || qStatus.uri || quoteUrl;
+  const qMediaHtml = renderStatusMediaGridHtml(qStatus.media_attachments);
+  const qCw =
+    qStatus.spoiler_text && qStatus.spoiler_text.trim()
+      ? `<div class="quoted-post-cw"><strong>CW:</strong> ${escapeHtml(qStatus.spoiler_text)}</div>`
+      : "";
+
+  return `
+    <div class="quoted-post-badge">
+      <span aria-hidden="true">&#10077;</span> Quoted Original Post
+    </div>
+    <div class="status-header quoted-post-header">
+      <button
+        type="button"
+        class="status-author-btn"
+        data-action="view-user"
+        data-account-id="${escapeHtml(qAccount.id || "")}"
+        data-account-name="${escapeHtml(qDisplayName)}"
+        data-account-acct="${escapeHtml(qAccount.acct || "")}"
+        data-account-avatar="${escapeHtml(qAccount.avatar_static || qAccount.avatar || "")}"
+        title="View personal posts by ${escapeHtml(qDisplayName)}"
+        aria-label="View personal posts by ${escapeHtml(qDisplayName)} (${escapeHtml(qAcct)})"
+      >
+        <img class="status-avatar quoted-avatar" src="${escapeHtml(qAccount.avatar_static || qAccount.avatar || "")}" alt="" loading="lazy" />
+        <div class="status-author-names">
+          <div class="status-display-name">${escapeHtml(qDisplayName)}</div>
+          <div class="status-acct">${escapeHtml(qAcct)}</div>
+        </div>
+      </button>
+      <a
+        class="status-time status-time-link"
+        href="${escapeHtml(qPostUrl)}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open quoted original post in a new tab"
+        aria-label="Quoted post from ${escapeHtml(qCreatedAt)} — open original post in a new tab"
+      >${escapeHtml(qCreatedAt || "Original Post")} &#8599;</a>
+    </div>
+    ${qCw}
+    <div class="status-content quoted-post-content">${qStatus.content || ""}</div>
+    ${qMediaHtml}
+  `;
+}
+
+/**
+ * Render the visually distinct embedded card for a quoted original Mastodon post.
+ */
+function renderQuotedPostEmbedHtml(quoteUrl, inlineQuoteObj = null) {
+  if (!quoteUrl) return "";
+  if (inlineQuoteObj && inlineQuoteObj.id) {
+    state.quotedStatusesCache[quoteUrl] = inlineQuoteObj;
+  }
+  const cached = findCachedOrLocalQuotedStatus(quoteUrl);
+
+  if (cached && cached !== "loading" && !cached._error) {
+    return `
+      <blockquote
+        class="quoted-post-embed"
+        cite="${escapeHtml(quoteUrl)}"
+        aria-label="Embedded quoted Mastodon post"
+      >
+        ${renderQuotedStatusCardContentHtml(cached, quoteUrl)}
+      </blockquote>
+    `;
+  }
+
+  if (cached && cached._error) {
+    return `
+      <blockquote
+        class="quoted-post-embed quoted-post-fallback"
+        cite="${escapeHtml(quoteUrl)}"
+        aria-label="Quoted Mastodon post link"
+      >
+        <div class="quoted-post-badge">
+          <span aria-hidden="true">&#10077;</span> Quoted Original Post
+        </div>
+        <div class="quoted-post-fallback-body">
+          <a href="${escapeHtml(quoteUrl)}" target="_blank" rel="noopener noreferrer">
+            ${escapeHtml(quoteUrl)} &#8599;
+          </a>
+        </div>
+      </blockquote>
+    `;
+  }
+
+  return `
+    <blockquote
+      class="quoted-post-embed quoted-post-slot"
+      cite="${escapeHtml(quoteUrl)}"
+      data-quote-url="${escapeHtml(quoteUrl)}"
+      data-quote-pending="true"
+      aria-label="Loading quoted Mastodon post"
+    >
+      <div class="quoted-post-badge">
+        <span aria-hidden="true">&#10077;</span> Quoted Original Post
+      </div>
+      <div class="quoted-post-loading-row">
+        <span class="spinner" style="width:14px;height:14px;"></span>
+        <span>Loading quoted post from <a href="${escapeHtml(quoteUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(quoteUrl)}</a>...</span>
+      </div>
+    </blockquote>
+  `;
+}
+
+/**
+ * Asynchronously resolve any pending quoted post URLs via GET /api/mastodon/quote
+ * and populate their embedded cards in the DOM.
+ */
+async function hydratePendingQuotedPosts() {
+  const slots = Array.from(
+    document.querySelectorAll('.quoted-post-slot[data-quote-pending="true"]')
+  );
+  if (slots.length === 0) return;
+
+  const uniqueUrls = [
+    ...new Set(slots.map((el) => el.dataset.quoteUrl).filter(Boolean)),
+  ];
+
+  await Promise.all(
+    uniqueUrls.map(async (quoteUrl) => {
+      if (state.quotedStatusesCache[quoteUrl] === "loading") return;
+      const existing = findCachedOrLocalQuotedStatus(quoteUrl);
+      if (!existing) {
+        state.quotedStatusesCache[quoteUrl] = "loading";
+        try {
+          const res = await apiRequest(
+            `/api/mastodon/quote?url=${encodeURIComponent(quoteUrl)}`
+          );
+          if (res.status && res.status.id) {
+            state.quotedStatusesCache[quoteUrl] = res.status;
+          } else {
+            state.quotedStatusesCache[quoteUrl] = { _error: true };
+          }
+        } catch (_) {
+          state.quotedStatusesCache[quoteUrl] = { _error: true };
+        }
+      }
+
+      const resolved = state.quotedStatusesCache[quoteUrl];
+      document
+        .querySelectorAll(
+          `.quoted-post-slot[data-quote-url="${CSS.escape(quoteUrl)}"]`
+        )
+        .forEach((slotEl) => {
+          slotEl.removeAttribute("data-quote-pending");
+          if (resolved && resolved !== "loading" && !resolved._error) {
+            slotEl.classList.remove("quoted-post-slot");
+            slotEl.setAttribute(
+              "aria-label",
+              "Embedded quoted Mastodon post"
+            );
+            slotEl.innerHTML = renderQuotedStatusCardContentHtml(
+              resolved,
+              quoteUrl
+            );
+          } else {
+            slotEl.classList.remove("quoted-post-slot");
+            slotEl.classList.add("quoted-post-fallback");
+            slotEl.innerHTML = `
+              <div class="quoted-post-badge">
+                <span aria-hidden="true">&#10077;</span> Quoted Original Post
+              </div>
+              <div class="quoted-post-fallback-body">
+                <a href="${escapeHtml(quoteUrl)}" target="_blank" rel="noopener noreferrer">
+                  ${escapeHtml(quoteUrl)} &#8599;
+                </a>
+              </div>
+            `;
+          }
+        });
+    })
+  );
+}
+
 function renderStatusCardHtml(rawStatus) {
   const isBoost = Boolean(rawStatus.reblog);
   const status = rawStatus.reblog || rawStatus;
@@ -1422,63 +1746,14 @@ function renderStatusCardHtml(rawStatus) {
   const myId = state.config?.mastodon?.account?.id;
   const isOwnPost = Boolean(myId && account.id === myId);
 
-  const mediaAttachments = Array.isArray(status.media_attachments)
-    ? status.media_attachments
-    : [];
+  const { quoteUrl, cleanedHtml } = extractLeadingQuoteFromHtml(
+    status.content || ""
+  );
+  const quotedEmbedHtml = quoteUrl
+    ? renderQuotedPostEmbedHtml(quoteUrl, status.quote || null)
+    : "";
 
-  const mediaHtml =
-    mediaAttachments.length > 0
-      ? `<div class="status-media-grid">
-           ${mediaAttachments
-             .map((m) => {
-               const alt = (m.description || "").trim();
-               const mediaUrl = m.url || m.preview_url || "";
-               const isVideo =
-                 m.type === "video" || m.type === "gifv";
-               const visual = isVideo
-                 ? `<video src="${escapeHtml(mediaUrl)}" controls ${m.type === "gifv" ? "loop muted" : ""} preload="metadata" aria-label="${escapeHtml(alt || "Uncaptioned video attachment")}"></video>`
-                 : `<img src="${escapeHtml(m.preview_url || mediaUrl)}" alt="${escapeHtml(alt || "Uncaptioned image attachment")}" loading="lazy" />`;
-
-               return `
-                 <div class="timeline-media-item" data-media-id="${escapeHtml(m.id)}">
-                   <div class="timeline-media-visual">${visual}</div>
-                   <div class="timeline-alt-box">
-                     <div class="timeline-alt-header">
-                       <span class="alt-tag ${alt ? "has-alt" : "no-alt"}">
-                         ${alt ? "ALT TEXT PROVIDED" : "NO ALT TEXT"}
-                       </span>
-                       <div style="display:flex;gap:6px;">
-                         ${
-                           alt
-                             ? `<button type="button" class="btn btn-sm btn-ghost" data-action="speak-timeline-alt" data-alt="${escapeHtml(alt)}">&#128266; Read Aloud</button>`
-                             : ""
-                         }
-                         <button
-                           type="button"
-                           class="btn btn-sm btn-accent"
-                           data-action="caption-timeline-media"
-                           data-media-url="${escapeHtml(m.preview_url || mediaUrl)}"
-                           data-media-type="${isVideo ? "video" : "image"}"
-                           data-target-box="tl-alt-text-${escapeHtml(m.id)}"
-                         >
-                           &#10024; ${alt ? "Re-Describe with AI" : "Describe with AI"}
-                         </button>
-                       </div>
-                     </div>
-                     <div class="timeline-alt-text" id="tl-alt-text-${escapeHtml(m.id)}">
-                       ${
-                         alt
-                           ? escapeHtml(alt)
-                           : "<em>No author alt-text provided. Click &ldquo;Describe with AI&rdquo; to generate a screen-reader description.</em>"
-                       }
-                     </div>
-                   </div>
-                 </div>
-               `;
-             })
-             .join("")}
-         </div>`
-      : "";
+  const mediaHtml = renderStatusMediaGridHtml(status.media_attachments);
 
   const cwHtml = hasCW
     ? `<div class="status-cw-box">
@@ -1542,7 +1817,8 @@ function renderStatusCardHtml(rawStatus) {
       ${cwHtml}
 
       <div id="status-body-${escapeHtml(status.id)}" class="${hasCW ? "hidden" : ""}">
-        <div class="status-content">${status.content || ""}</div>
+        ${quotedEmbedHtml}
+        ${cleanedHtml ? `<div class="status-content">${cleanedHtml}</div>` : ""}
         ${mediaHtml}
       </div>
 
@@ -1645,6 +1921,7 @@ function renderTimeline() {
   }
 
   feedEl.innerHTML = state.statuses.map(renderStatusCardHtml).join("");
+  hydratePendingQuotedPosts();
 }
 
 function renderNotifications() {
@@ -1694,6 +1971,7 @@ function renderNotifications() {
       `;
     })
     .join("");
+  hydratePendingQuotedPosts();
 }
 
 /* ==========================================================================
@@ -1908,6 +2186,7 @@ async function openThreadModal(statusId) {
     content.innerHTML = `<div class="timeline-feed">${items
       .map(renderStatusCardHtml)
       .join("")}</div>`;
+    hydratePendingQuotedPosts();
     announce(`Loaded thread with ${items.length} posts.`);
   } catch (err) {
     content.innerHTML = `<div class="error-banner">${escapeHtml(err.message)}</div>`;
@@ -2309,10 +2588,6 @@ async function fetchProviderModels(provider, { announceResult = false } = {}) {
   }
 }
 
-async function detectLocalOllamaModels() {
-  return fetchProviderModels("ollama", { announceResult: true });
-}
-
 async function saveSettingsFromModal() {
   const selectedProvider =
     document.querySelector('input[name="settings-ai-provider"]:checked')
@@ -2697,15 +2972,7 @@ function bindEvents() {
   document
     .getElementById("cancel-edit-btn")
     ?.addEventListener("click", () => {
-      clearEditContext();
-      document.getElementById("composer-textarea").value = "";
-      document.getElementById("cw-input").value = "";
-      state.attachments.forEach((a) => {
-        if (a.previewUrl && !a.existingMediaId) URL.revokeObjectURL(a.previewUrl);
-      });
-      state.attachments = [];
-      renderAttachments();
-      updateCharCounter();
+      resetComposerForm();
       announce("Canceled editing post.");
     });
   document

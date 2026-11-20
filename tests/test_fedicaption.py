@@ -717,6 +717,67 @@ class FediCaptionTestSuite(unittest.TestCase):
         ver_data2 = json.loads(ver_body2)
         self.assertFalse(ver_data2["update_available"])
 
+    @patch("urllib.request.urlopen")
+    def test_resolve_quoted_status(self, mock_urlopen):
+        save_config(
+            {
+                "mastodon": {
+                    "instance_url": "https://mastodon.social",
+                    "access_token": "tok_quote_test",
+                }
+            }
+        )
+
+        # 1. Same-instance quoted post resolution
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "id": "555111",
+                "content": "<p>Original quoted post text</p>",
+                "account": {
+                    "id": "42",
+                    "acct": "carol",
+                    "display_name": "Carol",
+                },
+                "url": "https://mastodon.social/@carol/555111",
+            }
+        )
+        code, q_body = self._invoke_handler(
+            "GET",
+            "/api/mastodon/quote?url=https%3A%2F%2Fmastodon.social%2F%40carol%2F555111",
+        )
+        self.assertEqual(code, 200)
+        q_data = json.loads(q_body)
+        self.assertTrue(q_data["ok"])
+        self.assertEqual(q_data["status"]["id"], "555111")
+        self.assertIn("Original quoted post text", q_data["status"]["content"])
+
+        # 2. Remote-instance quoted post resolution via /api/v2/search
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            {
+                "statuses": [
+                    {
+                        "id": "local_987",
+                        "content": "<p>Remote federated quoted post</p>",
+                        "account": {
+                            "id": "88",
+                            "acct": "dave@fosstodon.org",
+                            "display_name": "Dave",
+                        },
+                        "url": "https://fosstodon.org/@dave/777888",
+                    }
+                ]
+            }
+        )
+        code, q_body2 = self._invoke_handler(
+            "GET",
+            "/api/mastodon/quote?url=https%3A%2F%2Ffosstodon.org%2F%40dave%2F777888",
+        )
+        self.assertEqual(code, 200)
+        q_data2 = json.loads(q_body2)
+        self.assertTrue(q_data2["ok"])
+        self.assertEqual(q_data2["status"]["id"], "local_987")
+        self.assertIn("Remote federated quoted post", q_data2["status"]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

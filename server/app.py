@@ -23,12 +23,13 @@ from server.ai_captioner import (
     AICaptionerError,
     _create_ssl_context,
     _strip_data_url,
-    check_post_for_bias,
     generate_alt_text,
     list_ollama_models,
     list_provider_models,
 )
+from server.bias_checker import check_post_for_bias
 from server.config import (
+    _deep_merge,
     load_config,
     sanitize_config_for_client,
     save_config,
@@ -122,12 +123,22 @@ def check_github_update(current_version: str = __version__) -> Dict[str, Any]:
 
 
 def _get_mastodon_client(config: Optional[Dict[str, Any]] = None) -> MastodonClient:
+    """Create a MastodonClient initialized with the stored or provided instance config."""
     cfg = config or load_config()
     m_cfg = cfg.get("mastodon", {})
     return MastodonClient(
         instance_url=m_cfg.get("instance_url", "https://mastodon.social"),
         access_token=m_cfg.get("access_token", ""),
     )
+
+
+def _resolve_effective_ai_config(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Load stored AI configuration and merge any per-request ai_override fields."""
+    cfg = load_config()
+    ai_cfg = cfg.get("ai", {})
+    if isinstance(body.get("ai_override"), dict):
+        ai_cfg = _deep_merge(ai_cfg, body["ai_override"])
+    return ai_cfg
 
 
 def _fetch_and_save_instance_limits(client: MastodonClient) -> Dict[str, int]:
@@ -363,6 +374,16 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "source": source})
                 return
 
+            if path == "/api/mastodon/quote":
+                quote_url = query.get("url", "").strip()
+                if not quote_url:
+                    self._send_error_json("Missing quoted post url", 400)
+                    return
+                client = _get_mastodon_client()
+                quoted_status = client.resolve_quoted_status(quote_url)
+                self._send_json({"ok": True, "status": quoted_status})
+                return
+
             if path == "/api/mastodon/oauth/callback":
                 code = query.get("code", "").strip()
                 if not code:
@@ -441,13 +462,7 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/ai/caption":
-                cfg = load_config()
-                ai_cfg = cfg.get("ai", {})
-                # Allow per-request provider/model override from UI
-                if "ai_override" in body and isinstance(body["ai_override"], dict):
-                    from server.config import _deep_merge
-
-                    ai_cfg = _deep_merge(ai_cfg, body["ai_override"])
+                ai_cfg = _resolve_effective_ai_config(body)
 
                 media_type = body.get("media_type", "image")
                 images_b64 = body.get("images_b64") or []
@@ -476,12 +491,7 @@ class FediCaptionHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/ai/bias-check":
-                cfg = load_config()
-                ai_cfg = cfg.get("ai", {})
-                if "ai_override" in body and isinstance(body["ai_override"], dict):
-                    from server.config import _deep_merge
-
-                    ai_cfg = _deep_merge(ai_cfg, body["ai_override"])
+                ai_cfg = _resolve_effective_ai_config(body)
 
                 attachments = body.get("attachments") or []
                 for att in attachments:
